@@ -19,6 +19,7 @@
 use std::collections::BTreeMap;
 use std::ffi::c_void;
 use std::ptr::{null, null_mut};
+use std::time::{Duration, Instant};
 
 use winreg::RegKey;
 use winreg::enums::HKEY_LOCAL_MACHINE;
@@ -667,6 +668,8 @@ pub struct Sampler {
     npu: String,
     kmt: Option<Kmt>,
     cpus: usize,
+    power: Power,
+    power_at: Option<Instant>,
 }
 
 impl Sampler {
@@ -738,6 +741,8 @@ impl Sampler {
             npu,
             kmt: Kmt::load(),
             cpus,
+            power: Power::default(),
+            power_at: Some(Instant::now()),
         })
     }
 
@@ -885,46 +890,60 @@ impl Sampler {
         }
 
         // ---- power --------------------------------------------------------
-        if let Some(counter) = self.energy {
-            let mut power = Power::default();
-            let mut cpu_w = 0.0f32;
-            let mut cpu_seen = false;
-            let mut sys = None;
-            let mut total = None;
-            for (instance, milliwatts) in counter.array() {
-                let watts = milliwatts as f32 / 1000.0;
-                match instance.to_ascii_lowercase().as_str() {
-                    "sys" => sys = Some(watts),
-                    "_total" => total = Some(watts),
-                    "psu_usb" => power.psu_w = Some(watts),
-                    "gpu" => power.gpu_w = Some(watts),
-                    name if name.starts_with("cpu_cluster") => {
-                        cpu_w += watts;
-                        cpu_seen = true;
+        // The energy meter updates on its own ~1 s cadence. Sampling it faster
+        // yields zeros, so the rails are cached and refreshed at most once a
+        // second, independently of the UI interval.
+        let now = Instant::now();
+        let refresh = self
+            .power_at
+            .is_none_or(|t| now.duration_since(t) >= Duration::from_millis(900));
+        if refresh {
+            self.power_at = Some(now);
+            if let Some(counter) = self.energy {
+                let mut power = Power::default();
+                let mut cpu_w = 0.0f32;
+                let mut cpu_seen = false;
+                let mut sys = None;
+                let mut total = None;
+                for (instance, milliwatts) in counter.array() {
+                    let watts = milliwatts as f32 / 1000.0;
+                    match instance.to_ascii_lowercase().as_str() {
+                        "sys" => sys = Some(watts),
+                        "_total" => total = Some(watts),
+                        "psu_usb" => power.psu_w = Some(watts),
+                        "gpu" => power.gpu_w = Some(watts),
+                        name if name.starts_with("cpu_cluster") => {
+                            cpu_w += watts;
+                            cpu_seen = true;
+                        }
+                        _ => {}
                     }
-                    _ => {}
                 }
+                // "SYS" is the platform rail; `_Total` is the fallback for
+                // builds that do not name it.
+                power.sys_w = sys.or(total);
+                if cpu_seen {
+                    power.cpu_w = Some(cpu_w);
+                }
+                power.battery_pct = self.power.battery_pct;
+                power.ac = self.power.ac;
+                self.power = power;
             }
-            // "SYS" is the platform rail; `_Total` is the fallback for builds
-            // that do not name it.
-            power.sys_w = sys.or(total);
-            if cpu_seen {
-                power.cpu_w = Some(cpu_w);
-            }
-            snapshot.power = power;
         }
-        if let Some(gpu) = snapshot.gpus.first_mut() {
-            gpu.watts = snapshot.power.gpu_w;
-        }
-        snapshot.cpu.watts = snapshot.power.cpu_w;
 
         let mut status = SystemPowerStatus::default();
         if unsafe { GetSystemPowerStatus(&mut status) } != 0 {
             if status.battery_life_pct <= 100 {
-                snapshot.power.battery_pct = Some(status.battery_life_pct);
+                self.power.battery_pct = Some(status.battery_life_pct);
             }
-            snapshot.power.ac = Some(status.ac_line_status == 1);
+            self.power.ac = Some(status.ac_line_status == 1);
         }
+
+        snapshot.power = self.power;
+        if let Some(gpu) = snapshot.gpus.first_mut() {
+            gpu.watts = self.power.gpu_w;
+        }
+        snapshot.cpu.watts = self.power.cpu_w;
 
         // ---- thermal ------------------------------------------------------
         if let Some(counter) = self.thermal {

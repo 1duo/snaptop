@@ -239,8 +239,9 @@ fn run_headless(args: &Args) -> Result<(), String> {
     let mut sampler = Sampler::new()?;
     let device = sampler.device();
 
-    // PDH rate counters need two collections separated by a real interval.
-    thread::sleep(Duration::from_millis(400));
+    // PDH rate counters need two collections separated by a real interval;
+    // the energy meter itself updates at ~1 Hz.
+    thread::sleep(Duration::from_millis(1050));
 
     let limit = args.count.unwrap_or(if args.once { 1 } else { u64::MAX });
     let mut seq = 0u64;
@@ -388,7 +389,7 @@ fn snapshot_json(device: &DeviceInfo, s: &Snapshot, seq: u64) -> serde_json::Val
                 "clock_max_mhz": g.max_mhz,
                 "mem_used_bytes": g.mem_used,
                 "mem_total_bytes": g.mem_total,
-                "power_w": g.watts,
+                "power_w": g.watts.map(round2),
                 "engines": g.engines.iter()
                     .map(|e| json!({"name": e.name, "util_pct": round1(e.util)}))
                     .collect::<Vec<_>>(),
@@ -403,7 +404,7 @@ fn snapshot_json(device: &DeviceInfo, s: &Snapshot, seq: u64) -> serde_json::Val
             json!({
                 "name": n.name,
                 "util_pct": round1(n.util),
-                "power_w": n.watts,
+                "power_w": n.watts.map(round2),
                 "engines": n.engines.iter()
                     .map(|e| json!({"name": e.name, "util_pct": round1(e.util)}))
                     .collect::<Vec<_>>(),
@@ -431,7 +432,7 @@ fn snapshot_json(device: &DeviceInfo, s: &Snapshot, seq: u64) -> serde_json::Val
             "e_util_pct": s.cpu.util_of(CoreKind::Efficiency).map(round1),
             "cur_mhz": s.cpu.cur_mhz,
             "max_mhz": s.cpu.max_mhz,
-            "power_w": s.cpu.watts,
+            "power_w": s.cpu.watts.map(round2),
             "cores": s.cpu.cores.iter().map(|c| json!({
                 "id": c.id,
                 "kind": c.kind.label(),
@@ -448,19 +449,23 @@ fn snapshot_json(device: &DeviceInfo, s: &Snapshot, seq: u64) -> serde_json::Val
             "util_pct": round1(s.mem.pct()),
         },
         "power": {
-            "sys_w": s.power.sys_w,
-            "psu_w": s.power.psu_w,
-            "cpu_w": s.power.cpu_w,
-            "gpu_w": s.power.gpu_w,
+            "sys_w": s.power.sys_w.map(round2),
+            "psu_w": s.power.psu_w.map(round2),
+            "cpu_w": s.power.cpu_w.map(round2),
+            "gpu_w": s.power.gpu_w.map(round2),
             "battery_pct": s.power.battery_pct,
             "ac": s.power.ac,
         },
-        "thermal_c": s.thermal_c,
+        "thermal_c": s.thermal_c.map(round1),
     })
 }
 
 fn round1(value: f32) -> f32 {
     (value * 10.0).round() / 10.0
+}
+
+fn round2(value: f32) -> f32 {
+    (value * 100.0).round() / 100.0
 }
 
 // -------------------------------------------------------------- TUI --------
