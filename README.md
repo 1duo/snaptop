@@ -1,11 +1,11 @@
-# snaptop
+<p align="center"><img src="docs/logo.png" width="620" alt="snaptop — CPU, GPU, NPU and power"></p>
 
-**CPU, GPU, NPU and power in one terminal.** A fast, single-binary `top` for
-Windows on Snapdragon — mactop-style panels, no SDK, no driver, no admin prompt.
+A fast, single-binary `top` for Windows on Snapdragon — mactop-style panels,
+no SDK, no driver, no admin prompt.
 
-<img src="docs/screenshot.png" alt="snaptop dashboard: CPU, GPU, NPU, memory and power" width="900">
+<p align="center"><img src="docs/screenshot.png" alt="snaptop dashboard: CPU, GPU, NPU, memory and power" width="900"></p>
 
-<sub>Snapdragon X Elite X1E78100 · aurora theme.</sub>
+<p align="center"><sub>Snapdragon X Elite X1E78100 · aurora theme.</sub></p>
 
 ## Install
 
