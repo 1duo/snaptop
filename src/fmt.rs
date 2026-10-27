@@ -39,6 +39,10 @@ pub fn mhz_pair(cur: Option<u32>, max: Option<u32>) -> String {
     }
 }
 
+pub fn gib(v: u64) -> String {
+    format!("{:.1} GiB", v as f64 / 1_073_741_824.0)
+}
+
 pub fn gib_pair(used: u64, total: u64) -> String {
     format!(
         "{:.1} / {:.1} GiB",

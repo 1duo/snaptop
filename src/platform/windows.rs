@@ -697,6 +697,7 @@ pub struct Sampler {
     npu: String,
     kmt: Option<Kmt>,
     cpus: usize,
+    energy_query: Option<Pdh>,
     power: Power,
     power_at: Option<Instant>,
 }
@@ -714,7 +715,13 @@ impl Sampler {
         let gpu_engine = pdh.add(r"\GPU Engine(*)\Utilization Percentage");
         let gpu_dedicated = pdh.add(r"\GPU Adapter Memory(*)\Dedicated Usage");
         let gpu_shared = pdh.add(r"\GPU Adapter Memory(*)\Shared Usage");
-        let energy = pdh.add(r"\Energy Meter(*)\Power");
+        let mut energy_query = Pdh::new();
+        let energy = energy_query
+            .as_mut()
+            .and_then(|query| query.add(r"\Energy Meter(*)\Power"));
+        if let Some(query) = &energy_query {
+            query.collect();
+        }
         let thermal = pdh.add(r"\Thermal Zone Information(*)\Temperature");
 
         // SAFETY: the call takes no pointers and has no preconditions.
@@ -762,6 +769,7 @@ impl Sampler {
             gpu_engine,
             gpu_dedicated,
             gpu_shared,
+            energy_query,
             energy,
             thermal,
             kinds,
@@ -944,6 +952,9 @@ impl Sampler {
             snapshot.mem = Mem {
                 used: mem.total_phys.saturating_sub(mem.avail_phys),
                 total: mem.total_phys,
+                available: mem.avail_phys,
+                commit_used: mem.total_page_file.saturating_sub(mem.avail_page_file),
+                commit_total: mem.total_page_file,
             };
         }
 
@@ -953,10 +964,11 @@ impl Sampler {
         let now = Instant::now();
         let refresh = self
             .power_at
-            .is_none_or(|t| now.duration_since(t) >= Duration::from_millis(900));
+            .is_none_or(|t| now.duration_since(t) >= Duration::from_millis(1000));
         if refresh {
             self.power_at = Some(now);
-            if let Some(counter) = self.energy {
+            if let (Some(query), Some(counter)) = (&self.energy_query, self.energy) {
+                query.collect();
                 let mut power = Power::default();
                 let mut cpu_w = 0.0f32;
                 let mut cpu_seen = false;

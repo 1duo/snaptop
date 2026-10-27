@@ -34,7 +34,7 @@ struct Args {
     json: bool,
     preview: bool,
     count: Option<u64>,
-    theme: usize,
+    theme: Option<usize>,
 }
 
 fn main() {
@@ -68,7 +68,7 @@ fn parse_args() -> Result<Args, String> {
         json: false,
         preview: false,
         count: None,
-        theme: 0,
+        theme: None,
     };
 
     let mut it = std::env::args().skip(1);
@@ -98,7 +98,7 @@ fn parse_args() -> Result<Args, String> {
             }
             "--theme" => {
                 let value = it.next().ok_or("--theme needs a value")?;
-                args.theme = theme_index(&value)?;
+                args.theme = parse_theme(&value)?;
             }
             other => {
                 if let Some(value) = other.strip_prefix("--interval=") {
@@ -111,7 +111,7 @@ fn parse_args() -> Result<Args, String> {
                             .max(1),
                     );
                 } else if let Some(value) = other.strip_prefix("--theme=") {
-                    args.theme = theme_index(value)?;
+                    args.theme = parse_theme(value)?;
                 } else {
                     return Err(format!("unknown option: {other}"));
                 }
@@ -131,13 +131,13 @@ fn parse_interval(value: &str) -> Result<u64, String> {
     Ok((seconds * 1000.0).round() as u64)
 }
 
-fn theme_index(value: &str) -> Result<usize, String> {
-    match value.to_ascii_lowercase().as_str() {
-        "aurora" | "default" => Ok(0),
-        "nebula" => Ok(1),
-        "mono" => Ok(2),
-        other => Err(format!("unknown theme: {other} (aurora, nebula, mono)")),
+fn parse_theme(value: &str) -> Result<Option<usize>, String> {
+    if value.eq_ignore_ascii_case("auto") {
+        return Ok(None);
     }
+    theme::index_of(value)
+        .map(Some)
+        .ok_or_else(|| format!("unknown theme: {value} (auto, aurora, daylight, mono)"))
 }
 
 fn print_help() {
@@ -154,7 +154,7 @@ OPTIONS
     -1, --once              print one sample and exit
     -j, --json              JSON output (NDJSON stream unless --once/--count)
         --preview           render one frame as plain text, then exit
-        --theme <NAME>      aurora (default), nebula, mono
+        --theme <NAME>      auto (default), aurora, daylight, mono
     -h, --help              show this help
     -V, --version           show the version
 
@@ -198,10 +198,10 @@ fn run_preview(args: &Args) -> Result<(), String> {
 
     let mut app = App::new(device, args.interval_ms, args.theme);
     // A few real samples make the preview show a trace, not a flat line.
-    for _ in 0..200 {
+    for _ in 0..100 {
         let snapshot = sampler.sample()?;
         app.update(snapshot);
-        thread::sleep(Duration::from_millis(20));
+        thread::sleep(Duration::from_millis(100));
     }
     // A 20 ms delta reads zero on the energy meter; let it accumulate 1 s.
     thread::sleep(Duration::from_millis(1000));
@@ -333,6 +333,13 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
         fmt::pct(s.mem.pct()),
         fmt::gib_pair(s.mem.used, s.mem.total)
     );
+    if s.mem.commit_total > 0 {
+        println!(
+            "     avail {} · commit {}",
+            fmt::gib(s.mem.available),
+            fmt::gib_pair(s.mem.commit_used, s.mem.commit_total)
+        );
+    }
 
     let mut tail = Vec::new();
     if let Some(w) = s.power.sys_w {
@@ -437,6 +444,9 @@ fn snapshot_json(device: &DeviceInfo, s: &Snapshot, seq: u64) -> serde_json::Val
         "memory": {
             "used_bytes": s.mem.used,
             "total_bytes": s.mem.total,
+            "available_bytes": s.mem.available,
+            "commit_used_bytes": s.mem.commit_used,
+            "commit_total_bytes": s.mem.commit_total,
             "util_pct": round1(s.mem.pct()),
         },
         "power": {
@@ -451,12 +461,12 @@ fn snapshot_json(device: &DeviceInfo, s: &Snapshot, seq: u64) -> serde_json::Val
     })
 }
 
-fn round1(value: f32) -> f32 {
-    (value * 10.0).round() / 10.0
+fn round1(value: f32) -> f64 {
+    format!("{value:.1}").parse().unwrap_or(value as f64)
 }
 
-fn round2(value: f32) -> f32 {
-    (value * 100.0).round() / 100.0
+fn round2(value: f32) -> f64 {
+    format!("{value:.2}").parse().unwrap_or(value as f64)
 }
 
 fn run_tui(args: &Args) -> Result<(), String> {

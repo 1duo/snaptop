@@ -82,6 +82,9 @@ pub struct Npu {
 pub struct Mem {
     pub used: u64,
     pub total: u64,
+    pub available: u64,
+    pub commit_used: u64,
+    pub commit_total: u64,
 }
 
 impl Mem {
@@ -90,6 +93,14 @@ impl Mem {
             0.0
         } else {
             self.used as f32 * 100.0 / self.total as f32
+        }
+    }
+
+    pub fn commit_pct(&self) -> f32 {
+        if self.commit_total == 0 {
+            0.0
+        } else {
+            self.commit_used as f32 * 100.0 / self.commit_total as f32
         }
     }
 }

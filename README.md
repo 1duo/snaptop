@@ -1,20 +1,40 @@
 # snaptop
 
 **CPU, GPU, NPU and power in one terminal.** A fast, single-binary `top` for
-Windows on Snapdragon — no SDK, no driver, no admin prompt.
+Windows on Snapdragon — mactop-style panels, no SDK, no driver, no admin prompt.
 
 ```
-CPU   7% █████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  3.42 GHz · 5.0 W
-      P 8× 4%   E 4× 14%   ▂▁▁▁ ▂···▁···
-GPU   8% █████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  0.72/1.44 GHz · 0.0 W
-      Adreno X1-85 · 0.7/15.9 GiB · 3D 8%
-NPU   0% ░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  idle · Hexagon NPU
-MEM  52% ██████████████████████████████░░░░░░░░░░░░░  16.6 / 31.6 GiB
-SYS 15.8 W · SoC 59 °C · BAT 100% AC
+snaptop v0.1.0                              Snapdragon X Elite X1E78100 · Windows 11 Enterprise 24H2
+┌ CPU 12 cores (8P + 4E) · 12%  ────────────────────────────┐┌ GPU Adreno X1-85 · 5%  ─────────────┐
+│P 8× 1%   E 4× 34%                         3.42 GHz · 2.7 W││5%                      0.72/1.44 GHz│
+│ 0[███░░░░░]  39%  4[░░░░░░░░]   5%  8[░░░░░░░░]   0%      ││██░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│
+│ 1[███░░░░░]  37%  5[░░░░░░░░]   0%  9[░░░░░░░░]   0%      ││0.8/15.9 GiB · 3D 5%                 │
+│ 2[███░░░░░]  36%  6[░░░░░░░░]   0% 10[░░░░░░░░]   0%      ││                                     │
+│ 3[██░░░░░░]  23%  7[░░░░░░░░]   0% 11[░░░░░░░░]   0%      ││                                     │
+│⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀││                                     │
+│⢈⢈⢈⢈⣌⢈⢈⠀⢈⢈⢈⠀⠀⢈⢈⠀⠀⣌⣌⣮⣮⣌⣌⢈⢈⢈⢈⢈⢈⢈⣌⣌⣮⣌⣮⣿⣮⢈⣌⣌⣌⣮⣌⣌⣌⣌⢈⢈⢈⢈⢈⢈⠀⢈⢈⢈⠀⢈⢈││⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│
+│                                                           ││⠀⠀⠀⢈⠀⢈⠀⢈⠀⠀⠀⠀⢈⠀⢈⠀⠀⠀⢈⢈⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│
+│                                                           │└─────────────────────────────────────┘
+│                                                           │┌ NPU Hexagon · 0%  ──────────────────┐
+│                                                           ││0%                               idle│
+│                                                           ││░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░│
+│                                                           ││engine Compute 0%                    │
+│                                                           ││                                     │
+│                                                           ││⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│
+│                                                           ││⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀│
+└───────────────────────────────────────────────────────────┘└─────────────────────────────────────┘
+┌ MEMORY 17.7 / 31.6 GiB  ─────────────────────────────┐┌ POWER SYS 10.9 W  ───────────────────────┐
+│56%                                     avail 13.9 GiB││CPU 2.7 W · GPU 0.0 W · PSU 0.0 W         │
+│██████████████████████████████░░░░░░░░░░░░░░░░░░░░░░░░││BAT 99% · SoC 73 °C                       │
+│commit 25.0 / 33.6 GiB · 75%                          ││                                          │
+│                                                      ││⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⣌⣌⣌⣌⣌⣌⣌⣌⠀⠀⠀⠀⠀⠀⠀⠀⠀⣌⣌⣌⣌⣌⣌⠀│
+│⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀⠀││⣌⣌⣌⣌⣌⣌⣌⣌⣌⢈⢈⢈⢈⢈⢈⢈⢈⢈⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⢈│
+│⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿││⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿⣿│
+└──────────────────────────────────────────────────────┘└──────────────────────────────────────────┘
+q quit · space pause · t theme · ? help                                                aurora · 1.0s
 ```
 
-<sub>Condensed from a real `snaptop --preview` frame on a Snapdragon X Elite
-X1E78100.</sub>
+<sub>Real `snaptop --preview --theme dark` frame on a Snapdragon X Elite X1E78100.</sub>
 
 ## Install
 
@@ -41,11 +61,12 @@ snaptop --once                one plain-text snapshot
 snaptop --json --once         one JSON object
 snaptop --json -i 0.5         NDJSON metric stream
 snaptop --preview             one frame as text (bug reports)
-snaptop --theme nebula        aurora (default), nebula, mono
+snaptop --theme dark          auto (default), dark, light, mono
 ```
 
 Keys: `q` quit · `space` pause · `+`/`-` speed · `r` reset history · `t` theme · `?` help.
 
+`--theme auto` follows the OS app theme (aurora for dark, daylight for light).
 The NPU is the MCDM accelerator Windows exposes as a LUID no DXGI adapter
 claims; power comes from the Snapdragon energy-meter rails. Sources and design
 notes: [docs/how-it-works.md](docs/how-it-works.md).

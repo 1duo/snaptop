@@ -20,7 +20,7 @@ impl History {
         if self.data.len() == self.capacity {
             self.data.pop_front();
         }
-        self.data.push_back(value.clamp(0.0, 100.0));
+        self.data.push_back(value.max(0.0));
     }
 
     pub fn clear(&mut self) {
@@ -47,10 +47,10 @@ mod tests {
     }
 
     #[test]
-    fn clamps_to_a_percentage() {
+    fn keeps_values_non_negative() {
         let mut h = History::new(2);
         h.push(-5.0);
         h.push(250.0);
-        assert_eq!(h.as_slice(), vec![0.0, 100.0]);
+        assert_eq!(h.as_slice(), vec![0.0, 250.0]);
     }
 }

@@ -15,6 +15,7 @@ and no admin rights.
 | GPU clock | `D3DKMTQueryAdapterInfo(KMTQAITYPE_NODEPERFDATA)` |
 | Power | `\Energy Meter(*)\Power` — Snapdragon EMI rails, milliwatts |
 | Thermal | `\Thermal Zone Information(*)\Temperature`, Kelvin |
+| Memory | `GlobalMemoryStatusEx` — used, available, commit |
 | Battery | `GetSystemPowerStatus` |
 
 ## The NPU is a LUID nobody claims
@@ -49,8 +50,10 @@ guess.
 ## Design
 
 - One sampler thread; the render loop never waits on the chip.
-- Fixed 0–100 sparklines; the meter carries the number.
+- Utilisation sparklines are fixed 0–100; power auto-scales to its peak.
 - Missing counters degrade to `—`, never to an error.
+- `aurora` (dark), `daylight` (light) and `mono` palettes. `--theme auto`
+  follows the OS app theme, and every palette has a contrast test.
 - `#![deny(clippy::undocumented_unsafe_blocks)]`; FFI layouts are asserted in tests.
 
 ## Limitations

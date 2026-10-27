@@ -1,480 +1,631 @@
-//! Rendering: meters, braille sparklines and per-core bars, painted per cell.
+//! Rendering: mactop-style panels, meters, per-core bars and braille history.
 
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
-use ratatui::layout::Rect;
+use ratatui::layout::{Constraint, Layout, Rect};
 use ratatui::style::{Color, Modifier, Style};
 use ratatui::text::{Line, Span};
-use ratatui::widgets::{Block, BorderType, Clear, Paragraph};
+use ratatui::widgets::{Block, BorderType, Clear, Paragraph, Widget};
 
 use crate::app::App;
 use crate::fmt;
-use crate::model::CoreKind;
+use crate::model::{CoreKind, Gpu, Npu};
 use crate::theme::{self, Palette};
 
 pub fn draw(f: &mut Frame, app: &App) {
     let area = f.area();
-    let palette = theme::PALETTES[app.theme.min(theme::PALETTES.len() - 1)];
+    let p = theme::palette(app.theme);
 
-    f.render_widget(
-        Block::new().style(Style::default().bg(palette.bg).fg(palette.fg)),
-        area,
-    );
+    f.render_widget(Block::new().style(Style::default().bg(p.bg).fg(p.fg)), area);
 
-    if area.width < 48 || area.height < 14 {
-        draw_too_small(f.buffer_mut(), area, &palette);
+    if area.width < 60 || area.height < 18 {
+        draw_too_small(f.buffer_mut(), area, &p);
         return;
     }
 
-    let compact = area.height < 21;
-    let header_h = if compact { 2 } else { 3 };
-
-    draw_header(
-        f.buffer_mut(),
-        Rect {
-            x: area.x,
-            y: area.y,
-            width: area.width,
-            height: header_h,
-        },
-        app,
-        &palette,
-    );
-
+    let header = Rect {
+        x: area.x,
+        y: area.y,
+        width: area.width,
+        height: 1,
+    };
+    let footer = Rect {
+        x: area.x,
+        y: area.y + area.height - 1,
+        width: area.width,
+        height: 1,
+    };
     let body = Rect {
         x: area.x,
-        y: area.y + header_h,
+        y: area.y + 1,
         width: area.width,
-        height: area.height.saturating_sub(header_h + 1),
+        height: area.height - 2,
     };
-    draw_body(f.buffer_mut(), body, app, &palette, compact);
 
-    draw_footer(
-        f.buffer_mut(),
-        Rect {
-            x: area.x,
-            y: area.y + area.height - 1,
-            width: area.width,
-            height: 1,
-        },
-        app,
-        &palette,
-    );
+    draw_header(f.buffer_mut(), header, app, &p);
+    if area.width >= 96 && area.height >= 22 {
+        draw_grid(f.buffer_mut(), body, app, &p);
+    } else {
+        draw_stack(f.buffer_mut(), body, app, &p);
+    }
+    draw_footer(f.buffer_mut(), footer, app, &p);
 
     if app.help {
-        draw_help(f, area, &palette);
+        draw_help(f, area, &p);
     }
 }
 
 fn draw_too_small(buf: &mut Buffer, area: Rect, p: &Palette) {
-    let msg = "snaptop needs at least 48 × 14";
+    let msg = "snaptop needs 60 × 18";
     let x = area.x + area.width.saturating_sub(msg.chars().count() as u16) / 2;
     let y = area.y + area.height / 2;
     buf.set_string(x, y, msg, Style::default().fg(p.dim).bg(p.bg));
 }
 
 fn draw_header(buf: &mut Buffer, area: Rect, app: &App, p: &Palette) {
-    let y = area.y;
-    let wordmark = "snaptop";
     buf.set_string(
         area.x,
-        y,
-        wordmark,
+        area.y,
+        "snaptop",
         Style::default()
             .fg(p.cpu)
             .bg(p.bg)
             .add_modifier(Modifier::BOLD),
     );
     buf.set_string(
-        area.x + wordmark.len() as u16 + 1,
-        y,
+        area.x + 8,
+        area.y,
         concat!("v", env!("CARGO_PKG_VERSION")),
         Style::default().fg(p.faint).bg(p.bg),
     );
 
-    let right = fmt::truncate(&app.device.cpu_name, (area.width / 2) as usize);
-    put_right(buf, area, y, &right, Style::default().fg(p.fg).bg(p.bg));
-
-    let mut detail = format!(
-        "{} · build {} · {}",
-        app.device.os_name,
-        app.device.os_build,
-        app.device.core_summary()
-    );
-    if app.paused {
-        detail.push_str("  ·  PAUSED");
-    }
-    buf.set_string(
-        area.x,
-        y + 1,
-        fmt::truncate(&detail, area.width as usize),
-        Style::default()
-            .fg(if app.paused { p.warn } else { p.dim })
-            .bg(p.bg),
-    );
-
-    let cadence = if app.paused {
-        format!("{:.1}s", app.interval_ms as f64 / 1000.0)
-    } else if app.stale() {
-        "stale".to_string()
-    } else {
-        format!("{:.1}s", app.interval_ms as f64 / 1000.0)
-    };
+    let right = format!("{} · {}", app.device.cpu_name, app.device.os_name);
     put_right(
         buf,
         area,
-        y + 1,
-        &cadence,
-        Style::default()
-            .fg(if app.stale() && !app.paused {
-                p.warn
-            } else {
-                p.faint
-            })
-            .bg(p.bg),
+        area.y,
+        &fmt::truncate(&right, (area.width - 18) as usize),
+        Style::default().fg(p.dim).bg(p.bg),
     );
 }
 
-fn draw_body(buf: &mut Buffer, body: Rect, app: &App, p: &Palette, compact: bool) {
-    let gap = if compact { 0 } else { 1 };
-    let mem_h = if compact { 1 } else { 2 };
-    let spark_h = if compact {
-        1
+fn draw_footer(buf: &mut Buffer, area: Rect, app: &App, p: &Palette) {
+    let right = format!(
+        "{} · {:.1}s",
+        theme::name(app.theme),
+        app.interval_ms as f64 / 1000.0
+    );
+    let right_len = right.chars().count() as u16;
+    let left_width = area.width.saturating_sub(right_len + 2);
+
+    let (left, color) = if app.paused {
+        ("PAUSED", p.warn)
+    } else if app.stale() {
+        ("STALE", p.warn)
     } else {
-        ((body.height.saturating_sub(11)) / 3).clamp(1, 4)
+        ("q quit · space pause · t theme · ? help", p.dim)
     };
-    let accel_h = 2 + spark_h;
-
-    let mut y = body.y;
-    let snap = &app.snapshot;
-
-    let cpu_right = format!(
-        "{} · {}",
-        fmt::mhz(Some(snap.cpu.cur_mhz)),
-        fmt::watts(snap.cpu.watts)
+    buf.set_string(
+        area.x,
+        area.y,
+        fmt::truncate(left, left_width as usize),
+        Style::default().fg(color).bg(p.bg),
     );
-    let cpu_sub = cpu_subline(app);
-    draw_accel(
-        buf,
-        Rect {
-            x: body.x,
-            y,
-            width: body.width,
-            height: accel_h,
-        },
-        p,
-        "CPU",
-        p.cpu,
-        snap.cpu.util,
-        &cpu_right,
-        &app.cpu.as_slice(),
-        &cpu_sub,
-        spark_h,
-    );
-    y += accel_h + gap;
 
-    let gpu = snap.gpu();
-    let gpu_util = gpu.map(|g| g.util).unwrap_or(0.0);
-    let gpu_right = match gpu {
-        Some(g) => {
-            let clock = fmt::mhz_pair(g.cur_mhz, g.max_mhz);
-            if g.watts.is_some() {
-                format!("{} · {}", clock, fmt::watts(g.watts))
-            } else {
-                clock
-            }
-        }
-        None => "no GPU".to_string(),
-    };
-    let gpu_sub = gpu_subline(app);
-    draw_accel(
+    put_right(
         buf,
-        Rect {
-            x: body.x,
-            y,
-            width: body.width,
-            height: accel_h,
-        },
-        p,
-        "GPU",
-        p.gpu,
-        gpu_util,
-        &gpu_right,
-        &app.gpu.as_slice(),
-        &gpu_sub,
-        spark_h,
-    );
-    y += accel_h + gap;
-
-    let npu = snap.npu();
-    let npu_util = npu.map(|n| n.util).unwrap_or(0.0);
-    let npu_right = npu
-        .map(|n| match n.watts {
-            Some(w) => fmt::watts(Some(w)),
-            None => {
-                if n.util < 0.5 {
-                    "idle".to_string()
-                } else {
-                    "no rail".to_string()
-                }
-            }
-        })
-        .unwrap_or_else(|| "not found".to_string());
-    let npu_sub = npu_subline(app);
-    draw_accel(
-        buf,
-        Rect {
-            x: body.x,
-            y,
-            width: body.width,
-            height: accel_h,
-        },
-        p,
-        "NPU",
-        p.npu,
-        npu_util,
-        &npu_right,
-        &app.npu.as_slice(),
-        &npu_sub,
-        spark_h,
-    );
-    y += accel_h + gap;
-
-    let mem_pct = snap.mem.pct();
-    let mem_sub = fmt::gib_pair(snap.mem.used, snap.mem.total);
-    draw_mem(
-        buf,
-        Rect {
-            x: body.x,
-            y,
-            width: body.width,
-            height: mem_h,
-        },
-        p,
-        mem_pct,
-        &app.mem.as_slice(),
-        &mem_sub,
-        compact,
+        area,
+        area.y,
+        &right,
+        Style::default().fg(p.faint).bg(p.bg),
     );
 }
 
-fn cpu_subline(app: &App) -> String {
-    let cpu = &app.snapshot.cpu;
-    let mut parts = Vec::new();
-    if let Some(v) = cpu.util_of(CoreKind::Performance) {
-        parts.push(format!(
-            "P {}× {}",
-            cpu.count(CoreKind::Performance),
-            fmt::pct(v)
-        ));
-    }
-    if let Some(v) = cpu.util_of(CoreKind::Efficiency) {
-        parts.push(format!(
-            "E {}× {}",
-            cpu.count(CoreKind::Efficiency),
-            fmt::pct(v)
-        ));
-    }
-    let mut line = parts.join("   ");
-    if !line.is_empty() {
-        line.push_str("   ");
-    }
-    line.push_str(&core_bars(cpu, 24));
-    line
+fn draw_grid(buf: &mut Buffer, body: Rect, app: &App, p: &Palette) {
+    let rows = Layout::vertical([Constraint::Min(10), Constraint::Length(8)]).split(body);
+    let top =
+        Layout::horizontal([Constraint::Percentage(61), Constraint::Percentage(39)]).split(rows[0]);
+    let right =
+        Layout::vertical([Constraint::Percentage(56), Constraint::Percentage(44)]).split(top[1]);
+    let bottom =
+        Layout::horizontal([Constraint::Percentage(56), Constraint::Percentage(44)]).split(rows[1]);
+
+    draw_cpu(buf, top[0], app, p);
+    draw_gpu(buf, right[0], app, p);
+    draw_npu(buf, right[1], app, p);
+    draw_mem(buf, bottom[0], app, p);
+    draw_power(buf, bottom[1], app, p);
 }
 
-fn gpu_subline(app: &App) -> String {
-    let Some(gpu) = app.snapshot.gpu() else {
-        return String::new();
-    };
-    let mut parts = vec![gpu.name.clone()];
-    if let (Some(used), Some(total)) = (gpu.mem_used, gpu.mem_total) {
-        parts.push(format!(
-            "{:.1}/{:.1} GiB",
-            used as f64 / 1073741824.0,
-            total as f64 / 1073741824.0
-        ));
-    }
-    let engines: Vec<String> = gpu
-        .engines
-        .iter()
-        .filter(|e| e.util >= 0.5 || e.name == "3D")
-        .take(3)
-        .map(|e| format!("{} {}", e.name, fmt::pct(e.util)))
-        .collect();
-    if !engines.is_empty() {
-        parts.push(engines.join(" · "));
-    }
-    parts.join(" · ")
-}
+fn draw_stack(buf: &mut Buffer, body: Rect, app: &App, p: &Palette) {
+    let count = app.snapshot.cpu.cores.len().max(1) as u16;
+    let bar = if body.width >= 80 { 10u16 } else { 8 };
+    let cell = bar + 10;
+    let max_cols = (body.width.saturating_sub(2) / cell).max(1);
+    let mut rows = count.div_ceil(max_cols).max(1);
 
-fn npu_subline(app: &App) -> String {
-    let Some(npu) = app.snapshot.npu() else {
-        return "no compute accelerator found".to_string();
-    };
-    let mut parts = vec![npu.name.clone()];
-    if let Some(engine) = npu.engines.first() {
-        parts.push(format!("engine {} {}", engine.name, fmt::pct(engine.util)));
-    }
-    parts.join(" · ")
-}
-
-/// One eight-level block per core, grouped P | E.
-fn core_bars(cpu: &crate::model::Cpu, max: usize) -> String {
-    const LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
-    let mut out = String::new();
-    let mut last_kind = None;
-    for core in cpu.cores.iter().take(max) {
-        if let Some(prev) = last_kind
-            && prev != core.kind
-            && !out.is_empty()
-        {
-            out.push(' ');
-        }
-        last_kind = Some(core.kind);
-        let level = ((core.util / 100.0) * 8.0).round() as usize;
-        let ch = if core.util < 1.0 {
-            '·'
+    let mut cpu_h = (rows + 3).clamp(5, 9);
+    let mut gpu_h = 4u16;
+    let mut npu_h = 3u16;
+    let mut bottom_h = 4u16;
+    while cpu_h + gpu_h + npu_h + bottom_h > body.height {
+        if bottom_h > 3 {
+            bottom_h -= 1;
+        } else if gpu_h > 3 {
+            gpu_h -= 1;
+        } else if npu_h > 2 {
+            npu_h -= 1;
+        } else if rows > 1 && cpu_h > 5 {
+            rows -= 1;
+            cpu_h -= 1;
         } else {
-            LEVELS[level.clamp(1, 8) - 1]
-        };
-        out.push(ch);
+            break;
+        }
     }
-    out
+
+    // Use any leftover rows for the panels that were squeezed first.
+    let mut spare = body.height.saturating_sub(cpu_h + gpu_h + npu_h + bottom_h);
+    while spare > 0 {
+        if bottom_h < 5 {
+            bottom_h += 1;
+        } else if gpu_h < 5 {
+            gpu_h += 1;
+        } else if npu_h < 4 {
+            npu_h += 1;
+        } else if cpu_h < 9 {
+            cpu_h += 1;
+        } else {
+            break;
+        }
+        spare -= 1;
+    }
+
+    let chunks = Layout::vertical([
+        Constraint::Length(cpu_h),
+        Constraint::Length(gpu_h),
+        Constraint::Length(npu_h),
+        Constraint::Length(bottom_h),
+        Constraint::Min(0),
+    ])
+    .split(body);
+    draw_cpu(buf, chunks[0], app, p);
+    draw_gpu(buf, chunks[1], app, p);
+    draw_npu(buf, chunks[2], app, p);
+
+    let bottom = Layout::horizontal([Constraint::Percentage(56), Constraint::Percentage(44)])
+        .split(chunks[3]);
+    draw_mem(buf, bottom[0], app, p);
+    draw_power(buf, bottom[1], app, p);
 }
 
-#[allow(clippy::too_many_arguments)]
-fn draw_accel(
+fn panel(
     buf: &mut Buffer,
     rect: Rect,
     p: &Palette,
-    label: &str,
     accent: Color,
-    value: f32,
-    right: &str,
-    spark: &[f32],
-    subline: &str,
-    spark_h: u16,
-) {
-    if rect.height < 2 {
+    title: &str,
+    detail: &str,
+) -> Option<Rect> {
+    if rect.width < 12 || rect.height < 3 {
+        return None;
+    }
+    let block = Block::bordered()
+        .border_type(BorderType::Plain)
+        .border_style(Style::default().fg(p.border).bg(p.bg))
+        .title(Line::from(vec![
+            Span::styled(
+                format!(" {title} "),
+                Style::default().fg(accent).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(format!("{detail} "), Style::default().fg(p.dim)),
+        ]))
+        .style(Style::default().bg(p.bg));
+    let inner = block.inner(rect);
+    block.render(rect, buf);
+    Some(inner)
+}
+
+fn draw_cpu(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
+    let cpu = &app.snapshot.cpu;
+    let detail = format!("{} · {} ", app.device.core_summary(), fmt::pct(cpu.util));
+    let Some(inner) = panel(buf, rect, p, p.cpu, "CPU", &detail) else {
+        return;
+    };
+    if inner.height == 0 {
         return;
     }
-    let y = rect.y;
-    let width = rect.width as usize;
 
+    let mut left = String::new();
+    if let Some(value) = cpu.util_of(CoreKind::Performance) {
+        left.push_str(&format!(
+            "P {}× {}   ",
+            cpu.count(CoreKind::Performance),
+            fmt::pct(value)
+        ));
+    }
+    if let Some(value) = cpu.util_of(CoreKind::Efficiency) {
+        left.push_str(&format!(
+            "E {}× {}",
+            cpu.count(CoreKind::Efficiency),
+            fmt::pct(value)
+        ));
+    }
     buf.set_string(
-        rect.x,
+        inner.x,
+        inner.y,
+        fmt::truncate(&left, inner.width as usize),
+        Style::default().fg(p.fg).bg(p.bg),
+    );
+    let right = format!(
+        "{} · {}",
+        fmt::mhz(Some(cpu.cur_mhz)),
+        fmt::watts(cpu.watts)
+    );
+    put_right(
+        buf,
+        inner,
+        inner.y,
+        &right,
+        Style::default().fg(p.dim).bg(p.bg),
+    );
+
+    let rows_available = inner.height.saturating_sub(1);
+    if rows_available == 0 {
+        return;
+    }
+
+    let bar = if inner.width >= 64 { 10 } else { 8 };
+    let cell = bar + 10;
+    let max_cols = (inner.width / cell).clamp(1, 4);
+    let mut rows = (cpu.cores.len() as u16).div_ceil(max_cols).max(1);
+    rows = rows.min(rows_available);
+    let cols = (cpu.cores.len() as u16).div_ceil(rows.max(1)).min(max_cols);
+
+    for (index, core) in cpu.cores.iter().enumerate() {
+        let index = index as u16;
+        let col = index / rows;
+        let row = index % rows;
+        if col >= cols {
+            break;
+        }
+        draw_core(buf, inner.x + col * cell, inner.y + 1 + row, core, bar, p);
+    }
+
+    let used = 1 + rows.min(rows_available);
+    let spark_h = inner.height.saturating_sub(used).min(2);
+    if spark_h > 0 {
+        draw_sparkline(
+            buf,
+            Rect {
+                x: inner.x,
+                y: inner.y + used,
+                width: inner.width,
+                height: spark_h,
+            },
+            &app.cpu.as_slice(),
+            100.0,
+            p.cpu,
+            p,
+        );
+    }
+}
+
+fn draw_core(buf: &mut Buffer, x: u16, y: u16, core: &crate::model::Core, bar: u16, p: &Palette) {
+    if x + bar + 9 > buf.area.right() || y >= buf.area.bottom() {
+        return;
+    }
+    buf.set_string(
+        x,
         y,
-        label,
+        format!("{:>2}[", core.id),
+        Style::default().fg(p.dim).bg(p.bg),
+    );
+    let filled = ((core.util / 100.0) * bar as f32).round() as u16;
+    for i in 0..bar {
+        let cell = &mut buf[(x + 3 + i, y)];
+        if i < filled {
+            cell.set_char('█');
+            cell.set_fg(core_color(core.util, p));
+        } else {
+            cell.set_char('░');
+            cell.set_fg(p.faint);
+        }
+        cell.set_bg(p.bg);
+    }
+    buf.set_string(
+        x + 3 + bar,
+        y,
+        format!("] {:>3.0}%", core.util),
+        Style::default().fg(p.fg).bg(p.bg),
+    );
+}
+
+fn core_color(value: f32, p: &Palette) -> Color {
+    if value >= 90.0 {
+        p.bad
+    } else if value >= 70.0 {
+        p.warn
+    } else {
+        p.cpu
+    }
+}
+fn draw_gpu(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
+    let Some(gpu) = app.snapshot.gpu() else {
+        panel(buf, rect, p, p.gpu, "GPU", "not found ");
+        return;
+    };
+    let detail = format!("{} · {} ", gpu.name, fmt::pct(gpu.util));
+    let Some(inner) = panel(buf, rect, p, p.gpu, "GPU", &detail) else {
+        return;
+    };
+    draw_accelerator(buf, inner, gpu, p, p.gpu, &app.gpu.as_slice());
+}
+
+fn draw_npu(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
+    let Some(npu) = app.snapshot.npu() else {
+        panel(buf, rect, p, p.npu, "NPU", "not found ");
+        return;
+    };
+    let detail = format!(
+        "{} · {} ",
+        npu.name.trim_end_matches(" NPU"),
+        fmt::pct(npu.util)
+    );
+    let Some(inner) = panel(buf, rect, p, p.npu, "NPU", &detail) else {
+        return;
+    };
+    draw_accelerator(buf, inner, npu, p, p.npu, &app.npu.as_slice());
+}
+
+fn draw_accelerator<T: Gauge>(
+    buf: &mut Buffer,
+    inner: Rect,
+    device: &T,
+    p: &Palette,
+    accent: Color,
+    history: &[f32],
+) {
+    if inner.height == 0 {
+        return;
+    }
+    draw_big_pct(buf, inner.x, inner.y, device.util(), p, accent);
+    put_right(
+        buf,
+        inner,
+        inner.y,
+        &device.summary(),
+        Style::default().fg(p.dim).bg(p.bg),
+    );
+
+    if inner.height > 1 {
+        draw_meter(
+            buf,
+            inner.x,
+            inner.y + 1,
+            inner.width,
+            device.util(),
+            accent,
+            p,
+        );
+    }
+    if inner.height > 2 {
+        buf.set_string(
+            inner.x,
+            inner.y + 2,
+            fmt::truncate(&device.details(), inner.width as usize),
+            Style::default().fg(p.dim).bg(p.bg),
+        );
+    }
+
+    let spark_h = inner.height.saturating_sub(3).min(2);
+    if spark_h > 0 {
+        draw_sparkline(
+            buf,
+            Rect {
+                x: inner.x,
+                y: inner.y + inner.height - spark_h,
+                width: inner.width,
+                height: spark_h,
+            },
+            history,
+            100.0,
+            accent,
+            p,
+        );
+    }
+}
+
+trait Gauge {
+    fn util(&self) -> f32;
+    fn summary(&self) -> String;
+    fn details(&self) -> String;
+}
+
+impl Gauge for Gpu {
+    fn util(&self) -> f32 {
+        self.util
+    }
+    fn summary(&self) -> String {
+        fmt::mhz_pair(self.cur_mhz, self.max_mhz)
+    }
+    fn details(&self) -> String {
+        let memory = match (self.mem_used, self.mem_total) {
+            (Some(used), Some(total)) => format!(
+                "{:.1}/{:.1} GiB · ",
+                used as f64 / 1_073_741_824.0,
+                total as f64 / 1_073_741_824.0
+            ),
+            _ => String::new(),
+        };
+        let engines = self
+            .engines
+            .iter()
+            .filter(|e| e.util >= 0.5)
+            .take(3)
+            .map(|e| format!("{} {}", e.name, fmt::pct(e.util)))
+            .collect::<Vec<_>>()
+            .join(" · ");
+        if engines.is_empty() {
+            format!("{memory}idle")
+        } else {
+            format!("{memory}{engines}")
+        }
+    }
+}
+
+impl Gauge for Npu {
+    fn util(&self) -> f32 {
+        self.util
+    }
+    fn summary(&self) -> String {
+        match self.watts {
+            Some(watts) => fmt::watts(Some(watts)),
+            None if self.util < 0.5 => "idle".to_string(),
+            None => "no rail".to_string(),
+        }
+    }
+    fn details(&self) -> String {
+        self.engines
+            .first()
+            .map(|e| format!("engine {} {}", e.name, fmt::pct(e.util)))
+            .unwrap_or_else(|| "no engine counter".to_string())
+    }
+}
+
+fn draw_mem(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
+    let mem = app.snapshot.mem;
+    let detail = format!("{} ", fmt::gib_pair(mem.used, mem.total));
+    let Some(inner) = panel(buf, rect, p, p.mem, "MEMORY", &detail) else {
+        return;
+    };
+    if inner.height == 0 {
+        return;
+    }
+
+    draw_big_pct(buf, inner.x, inner.y, mem.pct(), p, p.mem);
+    put_right(
+        buf,
+        inner,
+        inner.y,
+        &format!("avail {}", fmt::gib(mem.available)),
+        Style::default().fg(p.dim).bg(p.bg),
+    );
+
+    if inner.height > 1 {
+        draw_meter(buf, inner.x, inner.y + 1, inner.width, mem.pct(), p.mem, p);
+    }
+    if inner.height > 2 && mem.commit_total > 0 {
+        buf.set_string(
+            inner.x,
+            inner.y + 2,
+            fmt::truncate(
+                &format!(
+                    "commit {} · {}",
+                    fmt::gib_pair(mem.commit_used, mem.commit_total),
+                    fmt::pct(mem.commit_pct())
+                ),
+                inner.width as usize,
+            ),
+            Style::default().fg(p.dim).bg(p.bg),
+        );
+    }
+
+    let spark_h = inner.height.saturating_sub(3).min(2);
+    if spark_h > 0 {
+        draw_sparkline(
+            buf,
+            Rect {
+                x: inner.x,
+                y: inner.y + inner.height - spark_h,
+                width: inner.width,
+                height: spark_h,
+            },
+            &app.mem.as_slice(),
+            100.0,
+            p.mem,
+            p,
+        );
+    }
+}
+
+fn draw_power(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
+    let power = &app.snapshot.power;
+    let detail = match power.sys_w {
+        Some(watts) => format!("SYS {} ", fmt::watts(Some(watts))),
+        None => "no rails ".to_string(),
+    };
+    let Some(inner) = panel(buf, rect, p, p.warn, "POWER", &detail) else {
+        return;
+    };
+    if inner.height == 0 {
+        return;
+    }
+
+    let rails = [
+        ("CPU", power.cpu_w),
+        ("GPU", power.gpu_w),
+        ("PSU", power.psu_w),
+    ]
+    .into_iter()
+    .filter_map(|(label, value)| value.map(|w| format!("{label} {}", fmt::watts(Some(w)))))
+    .collect::<Vec<_>>()
+    .join(" · ");
+    buf.set_string(
+        inner.x,
+        inner.y,
+        fmt::truncate(&rails, inner.width as usize),
+        Style::default().fg(p.fg).bg(p.bg),
+    );
+
+    if inner.height > 1 {
+        let mut second = Vec::new();
+        if let Some(battery) = power.battery_pct {
+            let ac = match power.ac {
+                Some(true) => " AC",
+                _ => "",
+            };
+            second.push(format!("BAT {battery}%{ac}"));
+        }
+        if let Some(temp) = app.snapshot.thermal_c {
+            second.push(format!("SoC {}", fmt::temp(Some(temp))));
+        }
+        buf.set_string(
+            inner.x,
+            inner.y + 1,
+            fmt::truncate(&second.join(" · "), inner.width as usize),
+            Style::default().fg(p.dim).bg(p.bg),
+        );
+    }
+
+    let spark_h = inner.height.saturating_sub(2).min(3);
+    if spark_h > 0 {
+        let peak = app.power.as_slice().iter().copied().fold(0.0f32, f32::max);
+        draw_sparkline(
+            buf,
+            Rect {
+                x: inner.x,
+                y: inner.y + inner.height - spark_h,
+                width: inner.width,
+                height: spark_h,
+            },
+            &app.power.as_slice(),
+            (peak * 1.15).clamp(20.0, 120.0),
+            p.warn,
+            p,
+        );
+    }
+}
+
+fn draw_big_pct(buf: &mut Buffer, x: u16, y: u16, value: f32, p: &Palette, accent: Color) {
+    buf.set_string(
+        x,
+        y,
+        format!("{:.0}%", value.clamp(0.0, 999.0)),
         Style::default()
             .fg(accent)
             .bg(p.bg)
             .add_modifier(Modifier::BOLD),
     );
-
-    let pct_text = format!("{:>3.0}%", value.clamp(0.0, 100.0));
-    buf.set_string(
-        rect.x + 4,
-        y,
-        &pct_text,
-        Style::default()
-            .fg(theme::heat(p, value))
-            .bg(p.bg)
-            .add_modifier(Modifier::BOLD),
-    );
-
-    let right = fmt::truncate(right, (width / 3).clamp(6, 24));
-    let detail_w = (width / 3).clamp(6, 24);
-    let meter_x = rect.x + 9;
-    let meter_w = width.saturating_sub(9 + detail_w + 2);
-    if meter_w >= 4 {
-        draw_meter(buf, meter_x, y, meter_w as u16, value, accent, p);
-    }
-    put_right(buf, rect, y, &right, Style::default().fg(p.dim).bg(p.bg));
-
-    if spark_h > 0 {
-        let spark_rect = Rect {
-            x: rect.x,
-            y: y + 1,
-            width: rect.width,
-            height: spark_h,
-        };
-        draw_sparkline(buf, spark_rect, spark, accent, p);
-    }
-
-    let sub_y = y + 1 + spark_h;
-    if sub_y < rect.y + rect.height {
-        buf.set_string(
-            rect.x,
-            sub_y,
-            fmt::truncate(subline, width),
-            Style::default().fg(p.dim).bg(p.bg),
-        );
-    }
-}
-
-fn draw_mem(
-    buf: &mut Buffer,
-    rect: Rect,
-    p: &Palette,
-    value: f32,
-    spark: &[f32],
-    subline: &str,
-    compact: bool,
-) {
-    if rect.height == 0 {
-        return;
-    }
-    let y = rect.y;
-    let width = rect.width as usize;
-    buf.set_string(
-        rect.x,
-        y,
-        "MEM",
-        Style::default()
-            .fg(p.mem)
-            .bg(p.bg)
-            .add_modifier(Modifier::BOLD),
-    );
-    let pct_text = format!("{:>3.0}%", value.clamp(0.0, 100.0));
-    buf.set_string(
-        rect.x + 4,
-        y,
-        &pct_text,
-        Style::default()
-            .fg(theme::heat(p, value))
-            .bg(p.bg)
-            .add_modifier(Modifier::BOLD),
-    );
-
-    let detail_w = (width / 3).clamp(6, 24);
-    let meter_x = rect.x + 9;
-    let meter_w = width.saturating_sub(9 + detail_w + 2);
-    if meter_w >= 4 {
-        draw_meter(buf, meter_x, y, meter_w as u16, value, p.mem, p);
-    }
-    put_right(
-        buf,
-        rect,
-        y,
-        &fmt::truncate(subline, detail_w),
-        Style::default().fg(p.dim).bg(p.bg),
-    );
-
-    if !compact && rect.height > 1 {
-        draw_sparkline(
-            buf,
-            Rect {
-                x: rect.x,
-                y: y + 1,
-                width: rect.width,
-                height: 1,
-            },
-            spark,
-            p.mem,
-            p,
-        );
-    }
 }
 
 fn draw_meter(
@@ -487,12 +638,15 @@ fn draw_meter(
     p: &Palette,
 ) {
     let width = width as usize;
+    if width == 0 {
+        return;
+    }
     let filled = ((value.clamp(0.0, 100.0) / 100.0) * width as f32).round() as usize;
     for i in 0..width {
         let cell = &mut buf[(x + i as u16, y)];
         if i < filled {
             cell.set_char('█');
-            cell.set_fg(theme::gradient(accent, i as f32 / width.max(1) as f32, p));
+            cell.set_fg(theme::gradient(accent, i as f32 / width as f32, p));
         } else {
             cell.set_char('░');
             cell.set_fg(p.faint);
@@ -501,8 +655,14 @@ fn draw_meter(
     }
 }
 
-/// Braille sparkline: two sample columns and four dot rows per character.
-fn draw_sparkline(buf: &mut Buffer, rect: Rect, data: &[f32], accent: Color, p: &Palette) {
+fn draw_sparkline(
+    buf: &mut Buffer,
+    rect: Rect,
+    data: &[f32],
+    max: f32,
+    accent: Color,
+    p: &Palette,
+) {
     if rect.width == 0 || rect.height == 0 {
         return;
     }
@@ -512,14 +672,14 @@ fn draw_sparkline(buf: &mut Buffer, rect: Rect, data: &[f32], accent: Color, p: 
     let cols = rect.width as usize;
     let rows = rect.height as usize;
     let dots = rows * 4;
-    let want = cols * 2;
+    let want = cols;
+    let max = max.max(1.0);
 
     let mut samples = vec![0.0f32; want];
     if !data.is_empty() {
         let take = data.len().min(want);
         let tail = &data[data.len() - take..];
         let offset = want - take;
-        // Hold the oldest sample until the trace fills the width.
         for value in samples[..offset].iter_mut() {
             *value = tail[0];
         }
@@ -539,13 +699,10 @@ fn draw_sparkline(buf: &mut Buffer, rect: Rect, data: &[f32], accent: Color, p: 
         for cy in 0..rows {
             let mut bits = 0u16;
             for dx in 0..2 {
-                let value = samples[(cx * 2 + dx).min(want - 1)].clamp(0.0, 100.0);
-                let lit = ((value / 100.0) * dots as f32).round() as usize;
+                let value = samples[cx.min(want - 1)] / max;
+                let lit = (value.clamp(0.0, 1.0) * dots as f32).round() as usize;
                 for g in 0..dots {
-                    if dots - g > lit {
-                        continue;
-                    }
-                    if g / 4 != cy {
+                    if dots - g > lit || g / 4 != cy {
                         continue;
                     }
                     let within = g % 4;
@@ -561,73 +718,8 @@ fn draw_sparkline(buf: &mut Buffer, rect: Rect, data: &[f32], accent: Color, p: 
     }
 }
 
-fn draw_footer(buf: &mut Buffer, area: Rect, app: &App, p: &Palette) {
-    let power = &app.snapshot.power;
-    let mut spans: Vec<Span> = Vec::new();
-
-    let mut push = |label: &str, value: String, color: Color| {
-        if !spans.is_empty() {
-            spans.push(Span::styled("  ·  ", Style::default().fg(p.faint)));
-        }
-        spans.push(Span::styled(
-            format!("{label} "),
-            Style::default().fg(p.dim),
-        ));
-        spans.push(Span::styled(value, Style::default().fg(color)));
-    };
-
-    if let Some(w) = power.sys_w {
-        push("SYS", fmt::watts(Some(w)), p.fg);
-    }
-    if let Some(t) = app.snapshot.thermal_c {
-        push(
-            "SoC",
-            fmt::temp(Some(t)),
-            if t > 85.0 { p.bad } else { p.fg },
-        );
-    }
-    if let Some(b) = power.battery_pct {
-        let suffix = match power.ac {
-            Some(true) => " AC",
-            Some(false) => "",
-            None => "",
-        };
-        push("BAT", format!("{b}%{suffix}"), p.fg);
-    }
-
-    let right = if app.help {
-        "? close".to_string()
-    } else {
-        "q quit · space pause · ? help".to_string()
-    };
-    let right_w = right.chars().count() as u16;
-    let left_w = area.width.saturating_sub(right_w + 2) as usize;
-
-    // Paint spans manually so the right-hand hint always survives.
-    let mut x = area.x;
-    for span in spans {
-        let used = (x - area.x) as usize;
-        let content = fmt::truncate(span.content.as_ref(), left_w.saturating_sub(used));
-        if content.is_empty() {
-            break;
-        }
-        buf.set_string(x, area.y, &content, span.style.bg(p.bg));
-        x += content.chars().count() as u16;
-        if x >= area.x + left_w as u16 {
-            break;
-        }
-    }
-    put_right(
-        buf,
-        area,
-        area.y,
-        &right,
-        Style::default().fg(p.faint).bg(p.bg),
-    );
-}
-
 fn draw_help(f: &mut Frame, area: Rect, p: &Palette) {
-    let width = 48.min(area.width);
+    let width = 52.min(area.width);
     let height = 9.min(area.height);
     let x = area.x + (area.width - width) / 2;
     let y = area.y + (area.height - height) / 2;
@@ -640,7 +732,7 @@ fn draw_help(f: &mut Frame, area: Rect, p: &Palette) {
 
     f.render_widget(Clear, rect);
     let block = Block::bordered()
-        .border_type(BorderType::Rounded)
+        .border_type(BorderType::Plain)
         .border_style(Style::default().fg(p.cpu).bg(p.bg))
         .title(Span::styled(
             " keys ",
@@ -664,15 +756,14 @@ fn draw_help(f: &mut Frame, area: Rect, p: &Palette) {
             Span::styled(action, Style::default().fg(p.fg)),
         ]));
     }
-    let inner = Rect {
-        x: rect.x + 1,
-        y: rect.y + 1,
-        width: rect.width.saturating_sub(2),
-        height: rect.height.saturating_sub(2),
-    };
     f.render_widget(
         Paragraph::new(lines).style(Style::default().bg(p.bg)),
-        inner,
+        Rect {
+            x: rect.x + 1,
+            y: rect.y + 1,
+            width: rect.width.saturating_sub(2),
+            height: rect.height.saturating_sub(2),
+        },
     );
 }
 
@@ -681,19 +772,18 @@ fn put_right(buf: &mut Buffer, area: Rect, y: u16, text: &str, style: Style) {
     if len > area.width {
         return;
     }
-    let x = area.x + area.width - len;
-    buf.set_string(x, y, text, style);
+    buf.set_string(area.x + area.width - len, y, text, style);
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::model::{self, DeviceInfo, Engine, Gpu, Mem, Npu, Power};
+    use crate::model::{self, DeviceInfo, Engine, Mem, Power};
 
     fn demo() -> (DeviceInfo, crate::model::Snapshot) {
         let device = DeviceInfo {
             cpu_name: "Snapdragon X Elite X1E78100".into(),
-            os_name: "Windows 11 Enterprise".into(),
+            os_name: "Windows 11 Enterprise 24H2".into(),
             os_build: "26100".into(),
             cpu_count: 12,
             p_cores: 8,
@@ -709,15 +799,15 @@ mod tests {
             ..Default::default()
         };
         for i in 0..12 {
-            let p = i < 8;
+            let performance = i < 8;
             cpu.cores.push(model::Core {
                 id: i,
-                kind: if p {
+                kind: if performance {
                     CoreKind::Performance
                 } else {
                     CoreKind::Efficiency
                 },
-                util: if p { 18.0 } else { 57.0 },
+                util: if performance { 18.0 } else { 57.0 },
                 cur_mhz: 3418,
                 max_mhz: 3418,
             });
@@ -755,6 +845,9 @@ mod tests {
             mem: Mem {
                 used: 20 << 30,
                 total: 32 << 30,
+                available: 12 << 30,
+                commit_used: 22 << 30,
+                commit_total: 40 << 30,
             },
             power: Power {
                 sys_w: Some(33.2),
@@ -769,37 +862,68 @@ mod tests {
         (device, snapshot)
     }
 
-    #[test]
-    fn draws_a_full_frame() {
+    fn render(width: u16, height: u16, theme_index: usize) -> String {
         let (device, snapshot) = demo();
-        let backend = ratatui::backend::TestBackend::new(100, 28);
+        let backend = ratatui::backend::TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
-        let mut app = App::new(device, 1000, 0);
+        let mut app = App::new(device, 1000, Some(theme_index));
         app.update(snapshot);
         terminal.draw(|frame| draw(frame, &app)).unwrap();
 
         let buffer = terminal.backend().buffer();
         let mut plain = String::new();
-        for y in 0..28 {
-            for x in 0..100 {
+        for y in 0..height {
+            for x in 0..width {
                 plain.push_str(buffer[(x, y)].symbol());
             }
             plain.push('\n');
         }
-        println!("{plain}");
-        assert!(plain.contains("Snapdragon X Elite X1E78100"));
-        assert!(plain.contains("Hexagon NPU"));
-        assert!(plain.contains("31%"));
-        assert!(plain.contains("33.2 W"));
+        plain
     }
 
     #[test]
-    fn survives_a_tiny_terminal() {
-        let (device, snapshot) = demo();
-        let backend = ratatui::backend::TestBackend::new(40, 10);
-        let mut terminal = ratatui::Terminal::new(backend).unwrap();
-        let mut app = App::new(device, 1000, 0);
-        app.update(snapshot);
-        terminal.draw(|frame| draw(frame, &app)).unwrap();
+    fn wide_layout_shows_every_panel() {
+        let frame = render(100, 30, 0);
+        println!("{frame}");
+        for panel in ["CPU", "GPU", "NPU", "MEMORY", "POWER"] {
+            assert!(frame.contains(panel), "missing {panel}");
+        }
+        assert!(frame.contains("commit"));
+        assert!(frame.contains("avail"));
+        assert!(frame.contains("31%"));
+    }
+
+    #[test]
+    fn light_theme_renders_the_same_panels() {
+        let frame = render(100, 30, 1);
+        for panel in ["CPU", "GPU", "NPU", "MEMORY", "POWER"] {
+            assert!(frame.contains(panel), "missing {panel}");
+        }
+    }
+
+    #[test]
+    fn palettes_reach_the_buffer() {
+        for (index, palette) in crate::theme::PALETTES.iter().enumerate() {
+            let (device, snapshot) = demo();
+            let backend = ratatui::backend::TestBackend::new(80, 24);
+            let mut terminal = ratatui::Terminal::new(backend).unwrap();
+            let mut app = App::new(device, 1000, Some(index));
+            app.update(snapshot);
+            terminal.draw(|frame| draw(frame, &app)).unwrap();
+            assert_eq!(terminal.backend().buffer()[(0, 23)].bg, palette.bg);
+        }
+    }
+
+    #[test]
+    fn narrow_layout_still_fits() {
+        let frame = render(70, 24, 0);
+        println!("{frame}");
+        assert!(frame.contains("MEMORY"));
+    }
+
+    #[test]
+    fn tiny_terminal_shows_a_hint() {
+        let frame = render(40, 12, 0);
+        assert!(frame.contains("needs 60"));
     }
 }
