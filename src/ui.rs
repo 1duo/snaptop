@@ -309,7 +309,7 @@ fn draw_cpu(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
             buf,
             Rect {
                 x: inner.x,
-                y: inner.y + used,
+                y: inner.y + inner.height - spark_h,
                 width: inner.width,
                 height: spark_h,
             },
@@ -397,62 +397,6 @@ fn draw_accelerator<T: Gauge>(
     history: &[f32],
 ) {
     if inner.height == 0 || inner.width < 12 {
-        return;
-    }
-
-    if inner.height >= 5 && inner.width >= 28 {
-        let gauge_w = 6.min(inner.width / 5).max(3);
-        draw_vmeter(
-            buf,
-            Rect {
-                x: inner.x,
-                y: inner.y,
-                width: gauge_w,
-                height: inner.height,
-            },
-            device.util(),
-            accent,
-            p,
-        );
-
-        let text = Rect {
-            x: inner.x + gauge_w + 2,
-            y: inner.y,
-            width: inner.width.saturating_sub(gauge_w + 2),
-            height: inner.height,
-        };
-        draw_big_pct(buf, text.x, text.y, device.util(), p, accent);
-        put_right(
-            buf,
-            text,
-            text.y,
-            &device.summary(),
-            Style::default().fg(p.dim).bg(p.bg),
-        );
-        if text.height > 1 {
-            buf.set_string(
-                text.x,
-                text.y + 1,
-                fmt::truncate(&device.details(), text.width as usize),
-                Style::default().fg(p.dim).bg(p.bg),
-            );
-        }
-        let spark_h = text.height.saturating_sub(2).min(2);
-        if spark_h > 0 {
-            draw_sparkline(
-                buf,
-                Rect {
-                    x: text.x,
-                    y: text.y + text.height - spark_h,
-                    width: text.width,
-                    height: spark_h,
-                },
-                history,
-                100.0,
-                accent,
-                p,
-            );
-        }
         return;
     }
 
@@ -629,114 +573,79 @@ fn draw_power(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
         return;
     }
 
-    let rails = [
-        ("CPU", power.cpu_w),
-        ("GPU", power.gpu_w),
-        ("PSU", power.psu_w),
-    ]
-    .into_iter()
-    .filter_map(|(label, value)| value.map(|w| format!("{label} {}", fmt::watts(Some(w)))))
-    .collect::<Vec<_>>()
-    .join(" · ");
+    let big = match power.sys_w {
+        Some(watts) => fmt::watts(Some(watts)),
+        None => "—".to_string(),
+    };
     buf.set_string(
         inner.x,
         inner.y,
-        fmt::truncate(&rails, inner.width as usize),
-        Style::default().fg(p.fg).bg(p.bg),
+        &big,
+        Style::default()
+            .fg(p.warn)
+            .bg(p.bg)
+            .add_modifier(Modifier::BOLD),
     );
 
-    if inner.height > 1 {
-        let mut second = Vec::new();
-        if let Some(battery) = power.battery_pct {
-            let ac = match power.ac {
-                Some(true) => " AC",
-                _ => "",
-            };
-            second.push(format!("BAT {battery}%{ac}"));
-        }
-        if let Some(temp) = app.snapshot.thermal_c {
-            second.push(format!("SoC {}", fmt::temp(Some(temp))));
-        }
-        buf.set_string(
-            inner.x,
-            inner.y + 1,
-            fmt::truncate(&second.join(" · "), inner.width as usize),
+    if let Some(battery) = power.battery_pct {
+        let ac = match power.ac {
+            Some(true) => " AC",
+            _ => "",
+        };
+        put_right(
+            buf,
+            inner,
+            inner.y,
+            &format!("BAT {battery}%{ac}"),
             Style::default().fg(p.dim).bg(p.bg),
         );
     }
 
-    let bars_h = inner.height.saturating_sub(2);
-    if bars_h > 0 {
+    if inner.height > 1 {
+        let rails = [
+            ("CPU", power.cpu_w),
+            ("GPU", power.gpu_w),
+            ("PSU", power.psu_w),
+        ]
+        .into_iter()
+        .filter_map(|(label, value)| value.map(|w| format!("{label} {}", fmt::watts(Some(w)))))
+        .collect::<Vec<_>>()
+        .join(" · ");
+        buf.set_string(
+            inner.x,
+            inner.y + 1,
+            fmt::truncate(&rails, inner.width as usize),
+            Style::default().fg(p.fg).bg(p.bg),
+        );
+    }
+
+    if inner.height > 2
+        && let Some(temp) = app.snapshot.thermal_c
+    {
+        buf.set_string(
+            inner.x,
+            inner.y + 2,
+            format!("SoC {}", fmt::temp(Some(temp))),
+            Style::default().fg(p.dim).bg(p.bg),
+        );
+    }
+
+    let spark_h = inner.height.saturating_sub(3).min(2);
+    if spark_h > 0 {
         let peak = app.power.as_slice().iter().copied().fold(0.0f32, f32::max);
-        draw_bars(
+        draw_sparkline(
             buf,
             Rect {
                 x: inner.x,
-                y: inner.y + 2,
+                y: inner.y + inner.height - spark_h,
                 width: inner.width,
-                height: bars_h,
+                height: spark_h,
             },
             &app.power.as_slice(),
             (peak * 1.2).clamp(30.0, 150.0),
             p.warn,
             p,
         );
-    }
-}
-
-fn draw_vmeter(buf: &mut Buffer, rect: Rect, value: f32, accent: Color, p: &Palette) {
-    if rect.width == 0 || rect.height == 0 {
-        return;
-    }
-    let rows = rect.height as usize;
-    let filled = ((value.clamp(0.0, 100.0) / 100.0) * rows as f32).round() as usize;
-    for row in 0..rows {
-        let lit = rows - row <= filled;
-        for x in rect.x..rect.x + rect.width {
-            let cell = &mut buf[(x, rect.y + row as u16)];
-            if lit {
-                cell.set_char('█');
-                cell.set_fg(theme::gradient(accent, 1.0 - row as f32 / rows as f32, p));
-            } else {
-                cell.set_char('░');
-                cell.set_fg(p.faint);
-            }
-            cell.set_bg(p.bg);
-        }
-    }
-}
-
-fn draw_bars(buf: &mut Buffer, rect: Rect, data: &[f32], max: f32, accent: Color, p: &Palette) {
-    let cols = rect.width as usize;
-    let rows = rect.height as usize;
-    if cols == 0 || rows == 0 {
-        return;
-    }
-    let max = max.max(1.0);
-    let mut samples = vec![0.0f32; cols];
-    if !data.is_empty() {
-        let take = data.len().min(cols);
-        let tail = &data[data.len() - take..];
-        let offset = cols - take;
-        for value in samples[..offset].iter_mut() {
-            *value = tail[0];
-        }
-        samples[offset..].copy_from_slice(tail);
-    }
-
-    for (x, value) in samples.iter().enumerate() {
-        let height = ((value / max).clamp(0.0, 1.0) * rows as f32).round() as usize;
-        for row in 0..rows {
-            let cell = &mut buf[(rect.x + x as u16, rect.y + row as u16)];
-            if rows - row <= height {
-                cell.set_char('█');
-                cell.set_fg(accent);
-            } else {
-                cell.set_char(' ');
-                cell.set_fg(p.faint);
-            }
-            cell.set_bg(p.bg);
-        }
     }
 }
 
