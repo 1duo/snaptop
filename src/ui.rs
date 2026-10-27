@@ -285,25 +285,27 @@ fn draw_cpu(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
         return;
     }
 
-    let bar = if inner.width >= 64 { 8 } else { 6 };
-    let cell = bar + 13;
-    let max_cols = (inner.width / cell).clamp(1, 4);
-    let mut rows = (cpu.cores.len() as u16).div_ceil(max_cols).max(1);
-    rows = rows.min(rows_available);
-    let cols = (cpu.cores.len() as u16).div_ceil(rows.max(1)).min(max_cols);
+    // Fill the card: one wide bar per core when there is height for it, and
+    // only fall back to columns when the panel is short.
+    let count = cpu.cores.len() as u16;
+    let max_cols = (inner.width / 15).max(1);
+    let cols = count.div_ceil(rows_available).clamp(1, max_cols);
+    let cell = inner.width / cols.max(1);
+    let bar = cell.saturating_sub(13).max(3);
+    let rows = count.div_ceil(cols).min(rows_available);
 
     for (index, core) in cpu.cores.iter().enumerate() {
         let index = index as u16;
-        let col = index / rows;
-        let row = index % rows;
+        let col = index / rows.max(1);
+        let row = index % rows.max(1);
         if col >= cols {
             break;
         }
         draw_core(buf, inner.x + col * cell, inner.y + 1 + row, core, bar, p);
     }
 
-    let used = 1 + rows.min(rows_available);
-    let spark_h = inner.height.saturating_sub(used).min(2);
+    let used = 1 + rows;
+    let spark_h = inner.height.saturating_sub(used).min(4);
     if spark_h > 0 {
         draw_sparkline(
             buf,
@@ -429,7 +431,7 @@ fn draw_accelerator<T: Gauge>(
         );
     }
 
-    let spark_h = inner.height.saturating_sub(3).min(2);
+    let spark_h = inner.height.saturating_sub(3).min(4);
     if spark_h > 0 {
         draw_sparkline(
             buf,
@@ -542,7 +544,7 @@ fn draw_mem(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
         );
     }
 
-    let spark_h = inner.height.saturating_sub(3).min(2);
+    let spark_h = inner.height.saturating_sub(3).min(4);
     if spark_h > 0 {
         draw_sparkline(
             buf,
@@ -630,7 +632,7 @@ fn draw_power(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
         );
     }
 
-    let spark_h = inner.height.saturating_sub(3).min(2);
+    let spark_h = inner.height.saturating_sub(3).min(4);
     if spark_h > 0 {
         let peak = app.power.as_slice().iter().copied().fold(0.0f32, f32::max);
         draw_sparkline(
