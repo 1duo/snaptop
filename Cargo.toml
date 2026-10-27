@@ -1,0 +1,29 @@
+[package]
+name = "snaptop"
+version = "0.1.0"
+edition = "2024"
+rust-version = "1.85"
+description = "A fast, elegant top for Snapdragon laptops: CPU, GPU, NPU and power in one view"
+license = "MIT"
+repository = "https://github.com/yuduow/snaptop"
+readme = "README.md"
+keywords = ["snapdragon", "npu", "arm64", "tui", "monitor"]
+categories = ["command-line-utilities", "hardware-support"]
+
+[dependencies]
+crossterm = "0.29"
+ratatui = "0.30"
+serde_json = "1"
+
+[target.'cfg(windows)'.dependencies]
+winreg = "0.56"
+windows = { version = "0.62", features = [
+    "Win32_Foundation",
+    "Win32_Graphics_Dxgi",
+    "Win32_Graphics_Dxgi_Common",
+] }
+
+[profile.release]
+opt-level = 3
+lto = "thin"
+strip = true
