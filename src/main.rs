@@ -573,6 +573,9 @@ fn spawn_sampler(interval_ms: u64) -> Result<SamplerThread, String> {
         if device_tx.send(Ok(sampler.device())).is_err() {
             return;
         }
+        // The counter query was primed in `new()`, but PDH needs a real delta
+        // before the first rate reads are meaningful.
+        thread::sleep(Duration::from_millis(150));
 
         let mut last: Option<Instant> = None;
         loop {
