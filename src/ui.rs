@@ -13,15 +13,31 @@ use crate::model::{CoreKind, Gpu, Npu};
 use crate::theme::{self, Palette};
 
 pub fn draw(f: &mut Frame, app: &App) {
-    let area = f.area();
+    let outer = f.area();
     let p = theme::palette(app.theme);
 
-    f.render_widget(Block::new().style(Style::default().bg(p.bg).fg(p.fg)), area);
+    let frame = Block::bordered()
+        .border_type(BorderType::Plain)
+        .border_style(Style::default().fg(p.border).bg(p.bg))
+        .title(Line::from(vec![
+            Span::styled(
+                " snaptop ",
+                Style::default().fg(p.cpu).add_modifier(Modifier::BOLD),
+            ),
+            Span::styled(
+                concat!("v", env!("CARGO_PKG_VERSION"), " "),
+                Style::default().fg(p.faint),
+            ),
+        ]))
+        .style(Style::default().bg(p.bg).fg(p.fg));
 
-    if area.width < 60 || area.height < 18 {
-        draw_too_small(f.buffer_mut(), area, &p);
+    if outer.width < 62 || outer.height < 20 {
+        draw_too_small(f.buffer_mut(), outer, &p);
         return;
     }
+
+    let area = frame.inner(outer);
+    frame.render(outer, f.buffer_mut());
 
     let header = Rect {
         x: area.x,
@@ -43,7 +59,7 @@ pub fn draw(f: &mut Frame, app: &App) {
     };
 
     draw_header(f.buffer_mut(), header, app, &p);
-    if area.width >= 96 && area.height >= 22 {
+    if area.width >= 94 && body.height >= 18 {
         draw_grid(f.buffer_mut(), body, app, &p);
     } else {
         draw_stack(f.buffer_mut(), body, app, &p);
@@ -51,40 +67,35 @@ pub fn draw(f: &mut Frame, app: &App) {
     draw_footer(f.buffer_mut(), footer, app, &p);
 
     if app.help {
-        draw_help(f, area, &p);
+        draw_help(f, outer, &p);
     }
 }
 
 fn draw_too_small(buf: &mut Buffer, area: Rect, p: &Palette) {
-    let msg = "snaptop needs 60 × 18";
+    let msg = "snaptop needs 62 × 20";
     let x = area.x + area.width.saturating_sub(msg.chars().count() as u16) / 2;
     let y = area.y + area.height / 2;
     buf.set_string(x, y, msg, Style::default().fg(p.dim).bg(p.bg));
 }
 
 fn draw_header(buf: &mut Buffer, area: Rect, app: &App, p: &Palette) {
+    let right = format!("{} · {}", app.device.os_name, app.device.core_summary());
+    let right_w = right.chars().count() as u16;
+    let left_max = area.width.saturating_sub(right_w + 2);
     buf.set_string(
         area.x,
         area.y,
-        "snaptop",
+        fmt::truncate(&app.device.cpu_name, left_max as usize),
         Style::default()
-            .fg(p.cpu)
+            .fg(p.fg)
             .bg(p.bg)
             .add_modifier(Modifier::BOLD),
     );
-    buf.set_string(
-        area.x + 8,
-        area.y,
-        concat!("v", env!("CARGO_PKG_VERSION")),
-        Style::default().fg(p.faint).bg(p.bg),
-    );
-
-    let right = format!("{} · {}", app.device.cpu_name, app.device.os_name);
     put_right(
         buf,
         area,
         area.y,
-        &fmt::truncate(&right, (area.width - 18) as usize),
+        &right,
         Style::default().fg(p.dim).bg(p.bg),
     );
 }
@@ -124,7 +135,7 @@ fn draw_footer(buf: &mut Buffer, area: Rect, app: &App, p: &Palette) {
 fn draw_grid(buf: &mut Buffer, body: Rect, app: &App, p: &Palette) {
     let rows = Layout::vertical([Constraint::Min(10), Constraint::Length(8)]).split(body);
     let top =
-        Layout::horizontal([Constraint::Percentage(61), Constraint::Percentage(39)]).split(rows[0]);
+        Layout::horizontal([Constraint::Percentage(64), Constraint::Percentage(36)]).split(rows[0]);
     let right =
         Layout::vertical([Constraint::Percentage(56), Constraint::Percentage(44)]).split(top[1]);
     let bottom =
@@ -140,7 +151,7 @@ fn draw_grid(buf: &mut Buffer, body: Rect, app: &App, p: &Palette) {
 fn draw_stack(buf: &mut Buffer, body: Rect, app: &App, p: &Palette) {
     let count = app.snapshot.cpu.cores.len().max(1) as u16;
     let bar = if body.width >= 80 { 10u16 } else { 8 };
-    let cell = bar + 10;
+    let cell = bar + 13;
     let max_cols = (body.width.saturating_sub(2) / cell).max(1);
     let mut rows = count.div_ceil(max_cols).max(1);
 
@@ -214,7 +225,7 @@ fn panel(
         .border_style(Style::default().fg(p.border).bg(p.bg))
         .title(Line::from(vec![
             Span::styled(
-                format!(" {title} "),
+                format!("-{title} "),
                 Style::default().fg(accent).add_modifier(Modifier::BOLD),
             ),
             Span::styled(format!("{detail} "), Style::default().fg(p.dim)),
@@ -274,8 +285,8 @@ fn draw_cpu(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
         return;
     }
 
-    let bar = if inner.width >= 64 { 10 } else { 8 };
-    let cell = bar + 10;
+    let bar = if inner.width >= 64 { 8 } else { 6 };
+    let cell = bar + 13;
     let max_cols = (inner.width / cell).clamp(1, 4);
     let mut rows = (cpu.cores.len() as u16).div_ceil(max_cols).max(1);
     rows = rows.min(rows_available);
@@ -311,18 +322,18 @@ fn draw_cpu(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
 }
 
 fn draw_core(buf: &mut Buffer, x: u16, y: u16, core: &crate::model::Core, bar: u16, p: &Palette) {
-    if x + bar + 9 > buf.area.right() || y >= buf.area.bottom() {
+    if x + bar + 12 > buf.area.right() || y >= buf.area.bottom() {
         return;
     }
     buf.set_string(
         x,
         y,
-        format!("{:>2}[", core.id),
+        format!("{:>2} [", core.id),
         Style::default().fg(p.dim).bg(p.bg),
     );
     let filled = ((core.util / 100.0) * bar as f32).round() as u16;
     for i in 0..bar {
-        let cell = &mut buf[(x + 3 + i, y)];
+        let cell = &mut buf[(x + 4 + i, y)];
         if i < filled {
             cell.set_char('█');
             cell.set_fg(core_color(core.util, p));
@@ -333,9 +344,9 @@ fn draw_core(buf: &mut Buffer, x: u16, y: u16, core: &crate::model::Core, bar: u
         cell.set_bg(p.bg);
     }
     buf.set_string(
-        x + 3 + bar,
+        x + 4 + bar,
         y,
-        format!("] {:>3.0}%", core.util),
+        format!("] {:>5.1}%", core.util),
         Style::default().fg(p.fg).bg(p.bg),
     );
 }
@@ -385,9 +396,66 @@ fn draw_accelerator<T: Gauge>(
     accent: Color,
     history: &[f32],
 ) {
-    if inner.height == 0 {
+    if inner.height == 0 || inner.width < 12 {
         return;
     }
+
+    if inner.height >= 5 && inner.width >= 28 {
+        let gauge_w = 6.min(inner.width / 5).max(3);
+        draw_vmeter(
+            buf,
+            Rect {
+                x: inner.x,
+                y: inner.y,
+                width: gauge_w,
+                height: inner.height,
+            },
+            device.util(),
+            accent,
+            p,
+        );
+
+        let text = Rect {
+            x: inner.x + gauge_w + 2,
+            y: inner.y,
+            width: inner.width.saturating_sub(gauge_w + 2),
+            height: inner.height,
+        };
+        draw_big_pct(buf, text.x, text.y, device.util(), p, accent);
+        put_right(
+            buf,
+            text,
+            text.y,
+            &device.summary(),
+            Style::default().fg(p.dim).bg(p.bg),
+        );
+        if text.height > 1 {
+            buf.set_string(
+                text.x,
+                text.y + 1,
+                fmt::truncate(&device.details(), text.width as usize),
+                Style::default().fg(p.dim).bg(p.bg),
+            );
+        }
+        let spark_h = text.height.saturating_sub(2).min(2);
+        if spark_h > 0 {
+            draw_sparkline(
+                buf,
+                Rect {
+                    x: text.x,
+                    y: text.y + text.height - spark_h,
+                    width: text.width,
+                    height: spark_h,
+                },
+                history,
+                100.0,
+                accent,
+                p,
+            );
+        }
+        return;
+    }
+
     draw_big_pct(buf, inner.x, inner.y, device.util(), p, accent);
     put_right(
         buf,
@@ -597,22 +665,78 @@ fn draw_power(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
         );
     }
 
-    let spark_h = inner.height.saturating_sub(2).min(3);
-    if spark_h > 0 {
+    let bars_h = inner.height.saturating_sub(2);
+    if bars_h > 0 {
         let peak = app.power.as_slice().iter().copied().fold(0.0f32, f32::max);
-        draw_sparkline(
+        draw_bars(
             buf,
             Rect {
                 x: inner.x,
-                y: inner.y + inner.height - spark_h,
+                y: inner.y + 2,
                 width: inner.width,
-                height: spark_h,
+                height: bars_h,
             },
             &app.power.as_slice(),
-            (peak * 1.15).clamp(20.0, 120.0),
+            (peak * 1.2).clamp(30.0, 150.0),
             p.warn,
             p,
         );
+    }
+}
+
+fn draw_vmeter(buf: &mut Buffer, rect: Rect, value: f32, accent: Color, p: &Palette) {
+    if rect.width == 0 || rect.height == 0 {
+        return;
+    }
+    let rows = rect.height as usize;
+    let filled = ((value.clamp(0.0, 100.0) / 100.0) * rows as f32).round() as usize;
+    for row in 0..rows {
+        let lit = rows - row <= filled;
+        for x in rect.x..rect.x + rect.width {
+            let cell = &mut buf[(x, rect.y + row as u16)];
+            if lit {
+                cell.set_char('█');
+                cell.set_fg(theme::gradient(accent, 1.0 - row as f32 / rows as f32, p));
+            } else {
+                cell.set_char('░');
+                cell.set_fg(p.faint);
+            }
+            cell.set_bg(p.bg);
+        }
+    }
+}
+
+fn draw_bars(buf: &mut Buffer, rect: Rect, data: &[f32], max: f32, accent: Color, p: &Palette) {
+    let cols = rect.width as usize;
+    let rows = rect.height as usize;
+    if cols == 0 || rows == 0 {
+        return;
+    }
+    let max = max.max(1.0);
+    let mut samples = vec![0.0f32; cols];
+    if !data.is_empty() {
+        let take = data.len().min(cols);
+        let tail = &data[data.len() - take..];
+        let offset = cols - take;
+        for value in samples[..offset].iter_mut() {
+            *value = tail[0];
+        }
+        samples[offset..].copy_from_slice(tail);
+    }
+
+    for (x, value) in samples.iter().enumerate() {
+        let height = ((value / max).clamp(0.0, 1.0) * rows as f32).round() as usize;
+        for row in 0..rows {
+            let cell = &mut buf[(rect.x + x as u16, rect.y + row as u16)];
+            if rows - row <= height {
+                cell.set_char('█');
+                cell.set_fg(accent);
+            } else {
+                cell.set_char(' ');
+                cell.set_fg(p.faint);
+            }
+            cell.set_bg(p.bg);
+        }
     }
 }
 
@@ -910,7 +1034,7 @@ mod tests {
             let mut app = App::new(device, 1000, Some(index));
             app.update(snapshot);
             terminal.draw(|frame| draw(frame, &app)).unwrap();
-            assert_eq!(terminal.backend().buffer()[(0, 23)].bg, palette.bg);
+            assert_eq!(terminal.backend().buffer()[(1, 1)].bg, palette.bg);
         }
     }
 
@@ -924,6 +1048,6 @@ mod tests {
     #[test]
     fn tiny_terminal_shows_a_hint() {
         let frame = render(40, 12, 0);
-        assert!(frame.contains("needs 60"));
+        assert!(frame.contains("needs 62"));
     }
 }
