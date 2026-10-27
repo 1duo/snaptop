@@ -113,6 +113,7 @@ pub struct Power {
     pub psu_w: Option<f32>,
     pub cpu_w: Option<f32>,
     pub gpu_w: Option<f32>,
+    pub npu_w: Option<f32>,
     pub battery_pct: Option<u8>,
     pub ac: Option<bool>,
 }
@@ -153,19 +154,36 @@ pub struct DeviceInfo {
 
 impl DeviceInfo {
     pub fn core_summary(&self) -> String {
-        let mut s = format!("{} cores", self.cpu_count);
-        let mut detail = Vec::new();
-        if self.p_cores > 0 {
-            detail.push(format!("{}P", self.p_cores));
+        if self.p_cores == 0 || self.e_cores == 0 {
+            return format!("{} cores", self.cpu_count);
         }
-        if self.e_cores > 0 {
-            detail.push(format!("{}E", self.e_cores));
-        }
-        if !detail.is_empty() {
-            s.push_str(" (");
-            s.push_str(&detail.join(" + "));
-            s.push(')');
-        }
-        s
+        format!(
+            "{} cores ({}P + {}E)",
+            self.cpu_count, self.p_cores, self.e_cores
+        )
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn single_class_summary_has_no_split() {
+        let x2 = DeviceInfo {
+            cpu_count: 18,
+            p_cores: 18,
+            e_cores: 0,
+            ..Default::default()
+        };
+        assert_eq!(x2.core_summary(), "18 cores");
+
+        let x1 = DeviceInfo {
+            cpu_count: 12,
+            p_cores: 8,
+            e_cores: 4,
+            ..Default::default()
+        };
+        assert_eq!(x1.core_summary(), "12 cores (8P + 4E)");
     }
 }

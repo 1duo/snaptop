@@ -607,6 +607,7 @@ fn draw_power(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
         let rails = [
             ("CPU", power.cpu_w),
             ("GPU", power.gpu_w),
+            ("NPU", power.npu_w),
             ("PSU", power.psu_w),
         ]
         .into_iter()
@@ -816,13 +817,21 @@ mod tests {
     use crate::model::{self, DeviceInfo, Engine, Mem, Power};
 
     fn demo() -> (DeviceInfo, crate::model::Snapshot) {
+        demo_with(12, 8)
+    }
+
+    fn demo_with(cpu_count: usize, p_cores: usize) -> (DeviceInfo, crate::model::Snapshot) {
         let device = DeviceInfo {
-            cpu_name: "Snapdragon X Elite X1E78100".into(),
+            cpu_name: if cpu_count > 12 {
+                "Snapdragon X2 Elite X2E-88-100".into()
+            } else {
+                "Snapdragon X Elite X1E78100".into()
+            },
             os_name: "Windows 11 Enterprise 24H2".into(),
             os_build: "26100".into(),
-            cpu_count: 12,
-            p_cores: 8,
-            e_cores: 4,
+            cpu_count,
+            p_cores,
+            e_cores: cpu_count.saturating_sub(p_cores),
             gpu_name: "Adreno X1-85".into(),
             npu_name: "Hexagon NPU".into(),
         };
@@ -833,8 +842,8 @@ mod tests {
             watts: Some(16.8),
             ..Default::default()
         };
-        for i in 0..12 {
-            let performance = i < 8;
+        for i in 0..cpu_count {
+            let performance = i < p_cores;
             cpu.cores.push(model::Core {
                 id: i,
                 kind: if performance {
@@ -889,6 +898,7 @@ mod tests {
                 psu_w: Some(33.2),
                 cpu_w: Some(16.8),
                 gpu_w: Some(0.1),
+                npu_w: None,
                 battery_pct: Some(87),
                 ac: Some(true),
             },
@@ -899,6 +909,16 @@ mod tests {
 
     fn render(width: u16, height: u16, theme_index: usize) -> String {
         let (device, snapshot) = demo();
+        render_with(device, snapshot, width, height, theme_index)
+    }
+
+    fn render_with(
+        device: DeviceInfo,
+        snapshot: crate::model::Snapshot,
+        width: u16,
+        height: u16,
+        theme_index: usize,
+    ) -> String {
         let backend = ratatui::backend::TestBackend::new(width, height);
         let mut terminal = ratatui::Terminal::new(backend).unwrap();
         let mut app = App::new(device, 1000, Some(theme_index));
@@ -914,6 +934,24 @@ mod tests {
             plain.push('\n');
         }
         plain
+    }
+
+    #[test]
+    fn scales_to_eighteen_cores() {
+        for (width, height) in [(100, 30), (70, 24)] {
+            let (device, snapshot) = demo_with(18, 18);
+            let frame = render_with(device, snapshot, width, height, 0);
+            println!("{frame}");
+            assert!(
+                frame.contains("17 ["),
+                "core 17 missing at {width}x{height}"
+            );
+            assert!(
+                frame.contains("18 cores"),
+                "core summary missing at {width}x{height}"
+            );
+            assert!(frame.contains("MEMORY"));
+        }
     }
 
     #[test]

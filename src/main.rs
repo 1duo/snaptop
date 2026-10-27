@@ -454,6 +454,7 @@ fn snapshot_json(device: &DeviceInfo, s: &Snapshot, seq: u64) -> serde_json::Val
             "psu_w": s.power.psu_w.map(round2),
             "cpu_w": s.power.cpu_w.map(round2),
             "gpu_w": s.power.gpu_w.map(round2),
+            "npu_w": s.power.npu_w.map(round2),
             "battery_pct": s.power.battery_pct,
             "ac": s.power.ac,
         },

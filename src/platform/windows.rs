@@ -549,6 +549,54 @@ fn core_kinds() -> Vec<CoreKind> {
     }
 }
 
+/// X2 Elite has Prime + Performance cores and no efficiency tier. Windows
+/// still ranks the two by EfficiencyClass, so fold the lower tier back into
+/// Performance instead of mislabelling it "E".
+fn normalize_kinds(cpu_name: &str, kinds: &mut [CoreKind]) {
+    if cpu_name.to_ascii_uppercase().contains("X2") {
+        for kind in kinds {
+            if *kind == CoreKind::Efficiency {
+                *kind = CoreKind::Performance;
+            }
+        }
+    }
+}
+
+/// Map `\Energy Meter` instances onto rails. Names and counts differ across
+/// X Elite / X2 Elite models, so match by prefix and sum every CPU cluster.
+fn parse_power(instances: impl IntoIterator<Item = (String, f64)>) -> Power {
+    let mut power = Power::default();
+    let mut cpu_w = 0.0f32;
+    let mut cpu_seen = false;
+    let mut sys = None;
+    let mut total = None;
+    let mut npu = None;
+
+    for (instance, milliwatts) in instances {
+        let watts = milliwatts as f32 / 1000.0;
+        match instance.to_ascii_lowercase().as_str() {
+            "sys" | "system" => sys = Some(watts),
+            "_total" => total = Some(watts),
+            name if name.starts_with("psu") => power.psu_w = Some(watts),
+            name if name.starts_with("gpu") => power.gpu_w = Some(watts),
+            name if name.starts_with("npu") || name.starts_with("nsp") => npu = Some(watts),
+            name if name.starts_with("cpu_cluster") => {
+                cpu_w += watts;
+                cpu_seen = true;
+            }
+            _ => {}
+        }
+    }
+
+    // SYS is the platform rail; `_Total` then charger input are fallbacks.
+    power.sys_w = sys.or(total).or(power.psu_w);
+    if cpu_seen {
+        power.cpu_w = Some(cpu_w);
+    }
+    power.npu_w = npu;
+    power
+}
+
 fn cpu_clocks(count: usize) -> Vec<(u32, u32)> {
     let mut out = vec![(0, 0); count];
     if count == 0 {
@@ -726,17 +774,18 @@ impl Sampler {
 
         // SAFETY: the call takes no pointers and has no preconditions.
         let cpus = unsafe { GetActiveProcessorCount(ALL_PROCESSOR_GROUPS) as usize }.max(1);
-        let kinds = {
+        let cpu = cpu_name();
+        let mut kinds = {
             let k = core_kinds();
             (0..cpus)
                 .map(|i| k.get(i).copied().unwrap_or(CoreKind::Unknown))
                 .collect::<Vec<_>>()
         };
+        normalize_kinds(&cpu, &mut kinds);
 
         let (adapters, software) = dxgi_adapters();
         let npu = npu_name();
         let (os_name, os_build) = os_identity();
-        let cpu = cpu_name();
 
         let p_cores = kinds
             .iter()
@@ -969,30 +1018,7 @@ impl Sampler {
             self.power_at = Some(now);
             if let (Some(query), Some(counter)) = (&self.energy_query, self.energy) {
                 query.collect();
-                let mut power = Power::default();
-                let mut cpu_w = 0.0f32;
-                let mut cpu_seen = false;
-                let mut sys = None;
-                let mut total = None;
-                for (instance, milliwatts) in counter.array() {
-                    let watts = milliwatts as f32 / 1000.0;
-                    match instance.to_ascii_lowercase().as_str() {
-                        "sys" => sys = Some(watts),
-                        "_total" => total = Some(watts),
-                        "psu_usb" => power.psu_w = Some(watts),
-                        "gpu" => power.gpu_w = Some(watts),
-                        name if name.starts_with("cpu_cluster") => {
-                            cpu_w += watts;
-                            cpu_seen = true;
-                        }
-                        _ => {}
-                    }
-                }
-                // SYS is the platform rail; _Total is the fallback.
-                power.sys_w = sys.or(total);
-                if cpu_seen {
-                    power.cpu_w = Some(cpu_w);
-                }
+                let mut power = parse_power(counter.array());
                 power.battery_pct = self.power.battery_pct;
                 power.ac = self.power.ac;
                 self.power = power;
@@ -1011,6 +1037,9 @@ impl Sampler {
         snapshot.power = self.power;
         if let Some(gpu) = snapshot.gpus.first_mut() {
             gpu.watts = self.power.gpu_w;
+        }
+        if let Some(npu) = snapshot.npus.first_mut() {
+            npu.watts = self.power.npu_w;
         }
         snapshot.cpu.watts = self.power.cpu_w;
 
@@ -1074,6 +1103,53 @@ mod tests {
         let key = "luid_0x00000000_0x0001221c";
         let luid = adapter_key_luid(key).unwrap();
         assert_eq!(luid_key(luid), key);
+    }
+
+    #[test]
+    fn x2_has_no_efficiency_tier() {
+        let mut x2 = vec![CoreKind::Performance, CoreKind::Efficiency];
+        normalize_kinds("Snapdragon X2 Elite X2E-88-100", &mut x2);
+        assert_eq!(x2, vec![CoreKind::Performance, CoreKind::Performance]);
+
+        let mut x1 = vec![CoreKind::Performance, CoreKind::Efficiency];
+        normalize_kinds("Snapdragon X Elite X1E78100", &mut x1);
+        assert_eq!(x1, vec![CoreKind::Performance, CoreKind::Efficiency]);
+    }
+
+    #[test]
+    fn rails_are_data_driven() {
+        let x1 = parse_power(vec![
+            ("sys".to_string(), 33_000.0),
+            ("psu_usb".to_string(), 32_000.0),
+            ("cpu_cluster_0".to_string(), 8_000.0),
+            ("cpu_cluster_1".to_string(), 4_000.0),
+            ("gpu".to_string(), 100.0),
+            ("_total".to_string(), 33_000.0),
+        ]);
+        assert_eq!(x1.sys_w, Some(33.0));
+        assert_eq!(x1.cpu_w, Some(12.0));
+        assert_eq!(x1.gpu_w, Some(0.1));
+        assert_eq!(x1.npu_w, None);
+
+        let x2 = parse_power(vec![
+            ("SYS".to_string(), 40_000.0),
+            ("cpu_cluster_0".to_string(), 10_000.0),
+            ("cpu_cluster_3".to_string(), 4_000.0),
+            ("gpu_0".to_string(), 500.0),
+            ("npu".to_string(), 1_500.0),
+        ]);
+        assert_eq!(x2.sys_w, Some(40.0));
+        assert_eq!(x2.cpu_w, Some(14.0));
+        assert_eq!(x2.gpu_w, Some(0.5));
+        assert_eq!(x2.npu_w, Some(1.5));
+    }
+
+    #[test]
+    fn sys_falls_back_to_total_and_psu() {
+        let total = parse_power(vec![("_total".to_string(), 20_000.0)]);
+        assert_eq!(total.sys_w, Some(20.0));
+        let psu = parse_power(vec![("psu_usb".to_string(), 18_000.0)]);
+        assert_eq!(psu.sys_w, Some(18.0));
     }
 
     /// These structures are passed to Win32; a field reorder or a size change

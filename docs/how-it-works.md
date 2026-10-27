@@ -9,7 +9,7 @@ and no admin rights.
 |---|---|
 | CPU utilisation | `\Processor Information(*)\% Processor Utility` (PDH) |
 | CPU clocks | `CallNtPowerInformation(ProcessorInformation)` |
-| CPU P/E split | `GetLogicalProcessorInformationEx` → `EfficiencyClass` |
+| CPU classes | `GetLogicalProcessorInformationEx` → `EfficiencyClass` |
 | GPU / NPU engines | `\GPU Engine(*)\Utilization Percentage`, grouped by LUID |
 | GPU memory | `\GPU Adapter Memory(*)` + DXGI adapter totals |
 | GPU clock | `D3DKMTQueryAdapterInfo(KMTQAITYPE_NODEPERFDATA)` |
@@ -44,8 +44,17 @@ Snapdragon exposes its Energy Meter as ordinary PDH counters:
 ```
 
 Measured shunt values, no admin. They update at ~1 Hz, so they are cached at
-that rate. The NPU has no rail on any platform, so it shows a dash rather than a
-guess.
+that rate. Rail names and counts vary by model, so they are matched by prefix:
+every `cpu_cluster_*` is summed, and an `npu`/`nsp` rail is used when present.
+
+## Hardware
+
+Tested on Snapdragon X Elite X1E78100. Nothing is hard-coded to that part:
+core count and classes come from the firmware, GPU/NPU identity from DXGI and
+the MCDM LUIDs, and power rails from whatever `\Energy Meter` exposes. X2
+Elite's 12 Prime + 6 Performance cores are treated as performance cores — X2
+has no efficiency tier — so the UI reports `18 cores` instead of inventing a
+P/E split.
 
 ## Design
 
@@ -60,7 +69,8 @@ guess.
 
 - Windows only; Linux is the next milestone.
 - Aggregate utilisation, no per-process attribution yet.
-- NPU power unavailable; GPU clocks depend on an optional driver DDI.
+- NPU power is shown only when the platform exposes a rail; GPU clocks depend
+  on an optional driver DDI.
 - Power rails are Snapdragon-specific; elsewhere the row is absent.
 - NPU detection assumes the MCDM-LUID shape.
 
