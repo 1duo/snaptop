@@ -33,6 +33,7 @@ struct Args {
     once: bool,
     json: bool,
     preview: bool,
+    capture: Option<String>,
     count: Option<u64>,
     theme: Option<usize>,
 }
@@ -47,7 +48,9 @@ fn main() {
         }
     };
 
-    let result = if args.preview {
+    let result = if let Some(path) = args.capture.as_deref() {
+        run_capture(&args, path)
+    } else if args.preview {
         run_preview(&args)
     } else if args.once || args.json || args.count.is_some() {
         run_headless(&args)
@@ -67,6 +70,7 @@ fn parse_args() -> Result<Args, String> {
         once: false,
         json: false,
         preview: false,
+        capture: None,
         count: None,
         theme: None,
     };
@@ -85,6 +89,10 @@ fn parse_args() -> Result<Args, String> {
             "-1" | "--once" => args.once = true,
             "-j" | "--json" => args.json = true,
             "--preview" => args.preview = true,
+            "--capture" => {
+                let value = it.next().ok_or("--capture needs a file")?;
+                args.capture = Some(value);
+            }
             "-i" | "--interval" => {
                 let value = it.next().ok_or("--interval needs a value")?;
                 args.interval_ms = parse_interval(&value)?;
@@ -112,6 +120,8 @@ fn parse_args() -> Result<Args, String> {
                     );
                 } else if let Some(value) = other.strip_prefix("--theme=") {
                     args.theme = parse_theme(value)?;
+                } else if let Some(value) = other.strip_prefix("--capture=") {
+                    args.capture = Some(value.to_string());
                 } else {
                     return Err(format!("unknown option: {other}"));
                 }
@@ -154,6 +164,7 @@ OPTIONS
     -1, --once              print one sample and exit
     -j, --json              JSON output (NDJSON stream unless --once/--count)
         --preview           render one frame as plain text, then exit
+        --capture <FILE>    write a styled HTML frame (for screenshots)
         --theme <NAME>      auto (default), aurora, daylight, mono
     -h, --help              show this help
     -V, --version           show the version
@@ -187,38 +198,45 @@ EXAMPLES
     );
 }
 
-/// Render one real frame as plain text, for bug reports and the README.
-fn run_preview(args: &Args) -> Result<(), String> {
-    use ratatui::Terminal;
-    use ratatui::backend::TestBackend;
+const CAPTURE_WIDTH: u16 = 100;
+const CAPTURE_HEIGHT: u16 = 28;
 
+/// Sample a short real trace; shared by `--preview` and `--capture`.
+fn preview_app(args: &Args) -> Result<App, String> {
     let mut sampler = Sampler::new()?;
     let device = sampler.device();
     thread::sleep(Duration::from_millis(400));
 
     let mut app = App::new(device, args.interval_ms, args.theme);
-    // A few real samples make the preview show a trace, not a flat line.
     for _ in 0..100 {
-        let snapshot = sampler.sample()?;
-        app.update(snapshot);
+        app.update(sampler.sample()?);
         thread::sleep(Duration::from_millis(100));
     }
-    // A 20 ms delta reads zero on the energy meter; let it accumulate 1 s.
+    // A 100 ms delta reads zero on the energy meter; let it accumulate 1 s.
     thread::sleep(Duration::from_millis(1000));
-    let snapshot = sampler.sample()?;
-    app.update(snapshot);
+    app.update(sampler.sample()?);
+    Ok(app)
+}
 
-    let (width, height) = (100u16, 28u16);
-    let backend = TestBackend::new(width, height);
+fn render_frame(app: &App) -> Result<ratatui::buffer::Buffer, String> {
+    use ratatui::Terminal;
+    use ratatui::backend::TestBackend;
+
+    let backend = TestBackend::new(CAPTURE_WIDTH, CAPTURE_HEIGHT);
     let mut terminal = Terminal::new(backend).map_err(|e| e.to_string())?;
     terminal
-        .draw(|frame| ui::draw(frame, &app))
+        .draw(|frame| ui::draw(frame, app))
         .map_err(|e| e.to_string())?;
+    Ok(terminal.backend().buffer().clone())
+}
 
-    let buffer = terminal.backend().buffer();
+/// Render one real frame as plain text, for bug reports.
+fn run_preview(args: &Args) -> Result<(), String> {
+    let app = preview_app(args)?;
+    let buffer = render_frame(&app)?;
     let mut out = String::new();
-    for y in 0..height {
-        for x in 0..width {
+    for y in 0..CAPTURE_HEIGHT {
+        for x in 0..CAPTURE_WIDTH {
             out.push_str(buffer[(x, y)].symbol());
         }
         out.push('\n');
@@ -226,6 +244,124 @@ fn run_preview(args: &Args) -> Result<(), String> {
     print!("{out}");
     Ok(())
 }
+
+/// Write the same frame as styled HTML for a browser screenshot.
+fn run_capture(args: &Args, path: &str) -> Result<(), String> {
+    let app = preview_app(args)?;
+    let buffer = render_frame(&app)?;
+    write_capture(std::path::Path::new(path), &buffer, &app)?;
+    println!("wrote {path}");
+    Ok(())
+}
+
+fn write_capture(
+    path: &std::path::Path,
+    buffer: &ratatui::buffer::Buffer,
+    app: &App,
+) -> Result<(), String> {
+    let p = theme::palette(app.theme);
+    let width = buffer.area.width;
+    let height = buffer.area.height;
+    let mut rows = String::new();
+
+    for y in 0..height {
+        let mut x = 0;
+        while x < width {
+            let first = &buffer[(x, y)];
+            let fg = first.fg;
+            let bg = first.bg;
+            let mut text = String::new();
+            while x < width {
+                let cell = &buffer[(x, y)];
+                if cell.fg != fg || cell.bg != bg {
+                    break;
+                }
+                text.push_str(cell.symbol());
+                x += 1;
+            }
+            rows.push_str(&format!(
+                r#"<span style="color:{};background:{}">{}</span>"#,
+                css(fg),
+                css(bg),
+                html_escape(&text)
+            ));
+        }
+        rows.push('\n');
+    }
+
+    let html = CAPTURE_TEMPLATE
+        .replace("%%BG%%", &css(p.bg))
+        .replace("%%FG%%", &css(p.fg))
+        .replace("%%DEVICE%%", &html_escape(&app.device.cpu_name))
+        .replace("%%OS%%", &html_escape(&app.device.os_name))
+        .replace("%%THEME%%", theme::name(app.theme))
+        .replace(
+            "%%INTERVAL%%",
+            &format!("{:.1}", app.interval_ms as f64 / 1000.0),
+        )
+        .replace("%%ROWS%%", &rows);
+
+    std::fs::write(path, html).map_err(|e| format!("cannot write {}: {e}", path.display()))
+}
+
+fn css(color: ratatui::style::Color) -> String {
+    match color {
+        ratatui::style::Color::Rgb(r, g, b) => format!("#{r:02x}{g:02x}{b:02x}"),
+        ratatui::style::Color::Reset => "transparent".to_string(),
+        _ => "#ffffff".to_string(),
+    }
+}
+
+fn html_escape(text: &str) -> String {
+    text.replace('&', "&amp;")
+        .replace('<', "&lt;")
+        .replace('>', "&gt;")
+}
+
+const CAPTURE_TEMPLATE: &str = r#"<!doctype html>
+<html><head><meta charset="utf-8"><title>snaptop</title>
+<style>
+* { box-sizing: border-box; }
+html, body { margin: 0; height: 100%; }
+body {
+  display: flex; align-items: center; justify-content: center;
+  background: radial-gradient(1200px 600px at 50% 0%, #171d29 0%, #07090d 62%);
+  font-family: "Segoe UI", system-ui, sans-serif;
+}
+.window {
+  border-radius: 14px; overflow: hidden;
+  border: 1px solid #2a3140;
+  background: %%BG%%;
+  box-shadow: 0 40px 120px rgba(0,0,0,.65);
+}
+.bar {
+  height: 40px; display: flex; align-items: center; gap: 12px;
+  padding: 0 16px; background: #121620; border-bottom: 1px solid #232a37;
+  color: #8c98ab; font-size: 13px;
+}
+.dots { display: flex; gap: 7px; margin-right: 4px; }
+.dots i { display: block; width: 11px; height: 11px; border-radius: 50%; background: #3a4353; }
+.title { color: #c8d2e2; font-weight: 600; letter-spacing: .2px; }
+.device { color: #7d8a9e; }
+.meta { margin-left: auto; color: #6f7c91; }
+pre {
+  margin: 0; padding: 18px 20px;
+  font-family: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
+  font-size: 15px; line-height: 18px;
+  font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0;
+  white-space: pre; color: %%FG%%;
+}
+</style></head>
+<body><div class="window">
+<div class="bar">
+  <span class="dots"><i></i><i></i><i></i></span>
+  <span class="title">snaptop</span>
+  <span class="device">%%DEVICE%% · %%OS%%</span>
+  <span class="meta">%%THEME%% · %%INTERVAL%%s</span>
+</div>
+<pre>%%ROWS%%</pre>
+</div></body></html>
+"#;
 
 fn run_headless(args: &Args) -> Result<(), String> {
     let mut sampler = Sampler::new()?;

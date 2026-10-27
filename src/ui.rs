@@ -340,8 +340,8 @@ fn draw_core(buf: &mut Buffer, x: u16, y: u16, core: &crate::model::Core, bar: u
             cell.set_char('█');
             cell.set_fg(core_color(core.util, p));
         } else {
-            cell.set_char('░');
-            cell.set_fg(p.faint);
+            cell.set_char(' ');
+            cell.set_fg(p.bg);
         }
         cell.set_bg(p.bg);
     }
@@ -684,8 +684,8 @@ fn draw_meter(
             cell.set_char('█');
             cell.set_fg(theme::gradient(accent, i as f32 / width as f32, p));
         } else {
-            cell.set_char('░');
-            cell.set_fg(p.faint);
+            cell.set_char(' ');
+            cell.set_fg(p.bg);
         }
         cell.set_bg(p.bg);
     }
