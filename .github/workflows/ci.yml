@@ -21,3 +21,13 @@ jobs:
         run: cargo test
       - name: Build
         run: cargo build --release
+
+  manifests:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Generate
+        shell: pwsh
+        run: ./packaging/winget/New-WingetManifests.ps1 -Version 0.1.0 -Sha256 ('0' * 64) -OutDir "$env:RUNNER_TEMP\winget"
+      - name: Validate
+        run: winget validate --manifest "$env:RUNNER_TEMP\winget"

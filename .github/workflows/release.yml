@@ -1,0 +1,65 @@
+name: release
+
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+
+      # The ARM64 linker ships with the "MSVC v143 C++ ARM64 build tools"
+      # component, which the windows-latest image includes.
+      - name: Set up the ARM64 MSVC toolchain
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: arm64
+
+      - name: Build
+        run: cargo build --release --target aarch64-pc-windows-msvc
+
+      - name: Test
+        run: cargo test
+
+      - name: Package
+        shell: pwsh
+        run: |
+          $version = $env:GITHUB_REF_NAME.TrimStart('v')
+          if ($version -notmatch '^\d+\.\d+\.\d+$') {
+            throw "Tag must be vX.Y.Z, got '$env:GITHUB_REF_NAME'"
+          }
+          $cargo = (Select-String -Path Cargo.toml -Pattern '^version = "(.+)"').Matches.Groups[1].Value
+          if ($cargo -ne $version) {
+            throw "Tag says $version but Cargo.toml says $cargo"
+          }
+          $zip = "snaptop-v$version-arm64.zip"
+          Copy-Item "target/aarch64-pc-windows-msvc/release/snaptop.exe" "snaptop.exe"
+          Compress-Archive -Path "snaptop.exe", "LICENSE", "README.md" -DestinationPath $zip
+          $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash
+          "VERSION=$version" >> $env:GITHUB_ENV
+          "ZIP=$zip" >> $env:GITHUB_ENV
+          "SHA256=$hash" >> $env:GITHUB_ENV
+
+      - name: Generate winget manifests
+        shell: pwsh
+        run: ./packaging/winget/New-WingetManifests.ps1 -Version $env:VERSION -Sha256 $env:SHA256 -OutDir packaging/winget/out
+
+      - name: Validate winget manifests
+        run: winget validate --manifest packaging/winget/out
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: |
+            ${{ env.ZIP }}
+            packaging/winget/out/*.yaml
+          generate_release_notes: true

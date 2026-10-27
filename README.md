@@ -61,7 +61,21 @@ It does not try to be a process explorer.
 
 ## Install
 
-Build from source (Rust 1.85+):
+### winget (recommended)
+
+```powershell
+winget install 1duo.snaptop
+```
+
+One command — no clone, no toolchain. The package is a portable ZIP: winget
+keeps `snaptop.exe` in its package store and puts a `snaptop` shim on `PATH`, so
+`winget upgrade 1duo.snaptop` and `winget uninstall 1duo.snaptop` manage the
+lifecycle too.
+
+> The 0.1.0 manifest is submitted to `microsoft/winget-pkgs` with the first
+> release. Until it is merged, use the build-from-source path below.
+
+### From source
 
 ```powershell
 git clone https://github.com/1duo/snaptop
@@ -70,7 +84,7 @@ cargo build --release
 copy target\release\snaptop.exe "$env:LOCALAPPDATA\Microsoft\WindowsApps\"
 ```
 
-There are no runtime dependencies: the result is one ~1 MB executable.
+Rust 1.85+. No runtime dependencies; one ~0.8 MB executable.
 
 ## Usage
 

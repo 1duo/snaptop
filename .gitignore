@@ -4,3 +4,4 @@
 *.dSYM
 .DS_Store
 Thumbs.db
+packaging/winget/out/
