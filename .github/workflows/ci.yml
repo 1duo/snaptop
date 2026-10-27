@@ -9,7 +9,7 @@ jobs:
   windows:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
@@ -25,7 +25,7 @@ jobs:
   manifests:
     runs-on: windows-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
       - name: Generate
         shell: pwsh
         run: ./packaging/winget/New-WingetManifests.ps1 -Version 0.1.0 -Sha256 ('0' * 64) -OutDir "$env:RUNNER_TEMP\winget"
