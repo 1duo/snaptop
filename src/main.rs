@@ -4,6 +4,8 @@
 //! a stable JSON mode. Anything that is not "what is the chip doing right now"
 //! belongs in a different tool.
 
+#![deny(clippy::undocumented_unsafe_blocks)]
+
 mod app;
 mod fmt;
 mod history;
@@ -358,7 +360,7 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
     }
     if let Some(b) = s.power.battery_pct {
         let ac = match s.power.ac {
-            Some(true) => " ⚡",
+            Some(true) => " AC",
             _ => "",
         };
         tail.push(format!("BAT {b}%{ac}"));
@@ -475,8 +477,13 @@ fn run_tui(args: &Args) -> Result<(), String> {
     let mut app = App::new(device, args.interval_ms, args.theme);
 
     let hook = std::panic::take_hook();
+    let main_thread = std::thread::current().id();
     std::panic::set_hook(Box::new(move |info| {
-        ratatui::restore();
+        // A sampler-thread panic must not tear down the terminal the UI thread
+        // is still drawing to.
+        if std::thread::current().id() == main_thread {
+            ratatui::restore();
+        }
         hook(info);
     }));
 

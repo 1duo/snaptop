@@ -115,7 +115,9 @@ fn draw_header(buf: &mut Buffer, area: Rect, app: &App, p: &Palette) {
             .bg(p.bg),
     );
 
-    let cadence = if app.stale() {
+    let cadence = if app.paused {
+        format!("{:.1}s", app.interval_ms as f64 / 1000.0)
+    } else if app.stale() {
         "stale".to_string()
     } else {
         format!("{:.1}s", app.interval_ms as f64 / 1000.0)
@@ -126,7 +128,11 @@ fn draw_header(buf: &mut Buffer, area: Rect, app: &App, p: &Palette) {
         y + 1,
         &cadence,
         Style::default()
-            .fg(if app.stale() { p.warn } else { p.faint })
+            .fg(if app.stale() && !app.paused {
+                p.warn
+            } else {
+                p.faint
+            })
             .bg(p.bg),
     );
 }
@@ -589,7 +595,7 @@ fn draw_footer(buf: &mut Buffer, area: Rect, app: &App, p: &Palette) {
     }
     if let Some(b) = power.battery_pct {
         let suffix = match power.ac {
-            Some(true) => " ⚡",
+            Some(true) => " AC",
             Some(false) => "",
             None => "",
         };

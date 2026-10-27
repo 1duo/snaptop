@@ -79,17 +79,26 @@ fn wide(s: &str) -> Vec<u16> {
     s.encode_utf16().chain(std::iter::once(0)).collect()
 }
 
+/// Read a NUL-terminated UTF-16 string returned by a Win32 API.
+///
+/// # Safety
+///
+/// `p` must be null or point to a NUL-terminated UTF-16 string that stays
+/// valid for the duration of the call. The 4096-unit cap is a defensive stop,
+/// not a guarantee.
 unsafe fn pcwstr_to_string(p: *const u16) -> String {
     if p.is_null() {
         return String::new();
     }
     let mut len = 0usize;
+    // SAFETY: the caller guarantees a NUL-terminated string and `len` is capped.
     while unsafe { *p.add(len) } != 0 {
         len += 1;
         if len > 4096 {
             break;
         }
     }
+    // SAFETY: `len` units were just proven readable and in bounds above.
     String::from_utf16_lossy(unsafe { std::slice::from_raw_parts(p, len) })
 }
 
@@ -100,6 +109,8 @@ struct Pdh {
 impl Pdh {
     fn new() -> Option<Self> {
         let mut query = 0isize;
+        // SAFETY: `query` is a local out-param; on success the handle is owned
+        // by the returned `Pdh` and closed in `Drop`.
         let rc = unsafe { PdhOpenQueryW(null(), 0, &mut query) };
         (rc == 0).then_some(Self { query })
     }
@@ -107,17 +118,22 @@ impl Pdh {
     fn add(&mut self, path: &str) -> Option<Counter> {
         let path = wide(path);
         let mut counter = 0isize;
+        // SAFETY: `self.query` is the live handle from `PdhOpenQueryW`; `path`
+        // is NUL-terminated and outlives the call.
         let rc = unsafe { PdhAddEnglishCounterW(self.query, path.as_ptr(), 0, &mut counter) };
         (rc == 0).then_some(Counter { handle: counter })
     }
 
     fn collect(&self) -> bool {
+        // SAFETY: the query handle is live and single-threaded.
         unsafe { PdhCollectQueryData(self.query) == 0 }
     }
 }
 
 impl Drop for Pdh {
     fn drop(&mut self) {
+        // SAFETY: `self.query` was returned by `PdhOpenQueryW` and is closed
+        // exactly once here; `Pdh` is neither `Clone` nor `Copy`.
         unsafe {
             PdhCloseQuery(self.query);
         }
@@ -135,6 +151,8 @@ impl Counter {
             status: 0,
             value: 0.0,
         };
+        // SAFETY: the counter belongs to a live query and `value` is a valid,
+        // correctly sized out-param for PDH_FMT_COUNTERVALUE.
         let rc = unsafe {
             PdhGetFormattedCounterValue(self.handle, PDH_FMT_DOUBLE, null_mut(), &mut value)
         };
@@ -145,6 +163,8 @@ impl Counter {
     fn array(&self) -> Vec<(String, f64)> {
         let mut size = 0u32;
         let mut count = 0u32;
+        // SAFETY: a null buffer is the documented way to ask PDH for the
+        // required byte size; no memory is written.
         let mut rc = unsafe {
             PdhGetFormattedCounterArrayW(
                 self.handle,
@@ -163,6 +183,8 @@ impl Counter {
 
         // Vec<u64> keeps the buffer 8-byte aligned for FmtItem.
         let mut buffer = vec![0u64; (size as usize).div_ceil(8)];
+        // SAFETY: `buffer` is at least `size` bytes (rounded up to u64) and
+        // 8-byte aligned; PDH writes at most `size` bytes into it.
         rc = unsafe {
             PdhGetFormattedCounterArrayW(
                 self.handle,
@@ -180,6 +202,8 @@ impl Counter {
         let max_items = (size as usize) / std::mem::size_of::<FmtItem>();
         let mut out = Vec::with_capacity(count as usize);
         for i in 0..(count as usize).min(max_items) {
+            // SAFETY: `i` is bounded by the item count and by the number of
+            // items that fit in the buffer PDH just filled.
             let item = unsafe { &*base.add(i) };
             if item.value.status != PDH_CSTATUS_VALID_DATA
                 && item.value.status != PDH_CSTATUS_NEW_DATA
@@ -187,6 +211,8 @@ impl Counter {
                 continue;
             }
             out.push((
+                // SAFETY: `item.name` is a NUL-terminated string inside the
+                // buffer PDH just filled.
                 unsafe { pcwstr_to_string(item.name) },
                 item.value.value.max(0.0),
             ));
@@ -215,6 +241,9 @@ fn luid_key(luid: LUID) -> String {
 fn dxgi_adapters() -> (Vec<Adapter>, Vec<String>) {
     let mut out = Vec::new();
     let mut software = Vec::new();
+    // SAFETY: CreateDXGIFactory1 returns an owned COM interface; every adapter
+    // reference is released by its `Drop` impl and the factory is released at
+    // the end of this block.
     unsafe {
         let factory: IDXGIFactory1 = match CreateDXGIFactory1() {
             Ok(f) => f,
@@ -303,6 +332,9 @@ unsafe extern "system" {
 
 impl Kmt {
     fn load() -> Option<Self> {
+        // SAFETY: `gdi32.dll` is a system module; the three names are the
+        // documented D3DKMT entry points and are transmuted to exactly the
+        // signatures restated at the top of this section.
         unsafe {
             let mut module = GetModuleHandleW(wide("gdi32.dll").as_ptr());
             if module.is_null() {
@@ -328,6 +360,9 @@ impl Kmt {
     /// Current and maximum engine clock in MHz, if the driver implements the
     /// optional KMT node performance DDI.
     fn clock(&self, luid: LUID) -> Option<(u32, u32)> {
+        // SAFETY: the adapter is opened from a LUID obtained from DXGI; each
+        // query buffer matches `NodePerfData`'s size and layout, and the
+        // adapter is closed on every path after a successful open.
         unsafe {
             let mut open = KmtOpen { luid, handle: 0 };
             if (self.open)(&mut open) != 0 {
@@ -363,26 +398,31 @@ impl Kmt {
 // ----------------------------------------------------- CPU topology --------
 
 #[repr(C)]
+#[derive(Clone, Copy)]
 struct GroupAffinity {
     mask: usize,
     group: u16,
     reserved: [u16; 3],
 }
 
+/// Fixed head of `SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX`. The real entry has
+/// a variable-length affinity tail, so it is read through this header and raw
+/// pointer arithmetic rather than a `&Struct` with a `[T; 1]` tail.
 #[repr(C)]
-struct ProcessorRelationship {
+#[derive(Clone, Copy)]
+struct LpiExHead {
+    relationship: u32,
+    size: u32,
+}
+
+/// Fixed head of `PROCESSOR_RELATIONSHIP`, up to the affinity array.
+#[repr(C)]
+#[derive(Clone, Copy)]
+struct ProcessorHead {
     flags: u8,
     efficiency_class: u8,
     reserved: [u8; 20],
     group_count: u16,
-    group_mask: [GroupAffinity; 1],
-}
-
-#[repr(C)]
-struct LpiEx {
-    relationship: u32,
-    size: u32,
-    processor: ProcessorRelationship,
 }
 
 #[repr(C)]
@@ -450,6 +490,10 @@ unsafe extern "system" {
 
 /// Logical processor -> P/E class, from the firmware's EfficiencyClass.
 fn core_kinds() -> Vec<CoreKind> {
+    // SAFETY: the documented two-step GetLogicalProcessorInformationEx
+    // protocol is used: a null buffer asks for the required length, then the
+    // same call fills a buffer of at least that size. Every read below is
+    // bounded by the returned `len` and by each entry's own `size` field.
     unsafe {
         let mut len = 0u32;
         if GetLogicalProcessorInformationEx(RELATION_PROCESSOR_CORE, null_mut(), &mut len) != 0 {
@@ -472,18 +516,34 @@ fn core_kinds() -> Vec<CoreKind> {
         let mut order: Vec<(usize, u8)> = Vec::new();
         let base = buffer.as_ptr().cast::<u8>();
         let mut offset = 0usize;
-        while offset + 8 <= len as usize {
-            let entry = &*(base.add(offset).cast::<LpiEx>());
-            let size = entry.size as usize;
-            if size < 8 || offset + size > len as usize {
+        let head_len = std::mem::size_of::<LpiExHead>();
+        let processor_len = std::mem::size_of::<ProcessorHead>();
+        let mask_len = std::mem::size_of::<GroupAffinity>();
+
+        while offset + head_len <= len as usize {
+            // SAFETY: at least `head_len` bytes remain; LpiExHead is Copy and
+            // contains no pointers.
+            let head = *base.add(offset).cast::<LpiExHead>();
+            let size = head.size as usize;
+            if size < head_len || offset + size > len as usize {
                 break;
             }
-            if entry.relationship == RELATION_PROCESSOR_CORE {
-                let class = entry.processor.efficiency_class;
-                let groups = entry.processor.group_count.max(1) as usize;
-                let masks = (&raw const entry.processor.group_mask).cast::<GroupAffinity>();
-                for g in 0..groups.min(64) {
-                    let affinity = &*masks.add(g);
+            if head.relationship == RELATION_PROCESSOR_CORE && size >= head_len + processor_len {
+                let processor_at = offset + head_len;
+                // SAFETY: the entry is at least `head_len + processor_len`
+                // bytes, so this 24-byte read is inside it. ProcessorHead is
+                // Copy.
+                let processor = *base.add(processor_at).cast::<ProcessorHead>();
+                let class = processor.efficiency_class;
+                let group_count = (processor.group_count as usize).max(1);
+                let mask_at = processor_at + processor_len;
+                let max_groups = (offset + size - mask_at) / mask_len;
+                let masks = base.add(mask_at).cast::<GroupAffinity>();
+                for g in 0..group_count.min(max_groups) {
+                    // SAFETY: `g` is bounded by the number of GroupAffinity
+                    // records that physically fit in this entry. `read_unaligned`
+                    // keeps this valid even if an entry is not 8-byte padded.
+                    let affinity = masks.add(g).read_unaligned();
                     for bit in 0..64usize {
                         if affinity.mask & (1usize << bit) != 0 {
                             let index = affinity.group as usize * 64 + bit;
@@ -499,14 +559,15 @@ fn core_kinds() -> Vec<CoreKind> {
         let mut distinct: Vec<u8> = classes.values().copied().collect();
         distinct.sort_unstable();
         distinct.dedup();
-        if distinct.len() < 2 {
+        let Some(performance_class) = distinct.last().copied().filter(|_| distinct.len() >= 2)
+        else {
             return Vec::new();
-        }
+        };
 
         let max_index = order.iter().map(|(i, _)| *i).max().unwrap_or(0);
         let mut kinds = vec![CoreKind::Unknown; max_index + 1];
         for (index, class) in order {
-            kinds[index] = if class == *distinct.last().unwrap() {
+            kinds[index] = if class == performance_class {
                 CoreKind::Performance
             } else {
                 CoreKind::Efficiency
@@ -532,6 +593,8 @@ fn cpu_clocks(count: usize) -> Vec<(u32, u32)> {
         })
         .collect();
     let bytes = (info.len() * std::mem::size_of::<ProcessorPowerInformation>()) as u32;
+    // SAFETY: `info` holds `count` initialized PROCESSOR_POWER_INFORMATION
+    // records and `bytes` describes exactly that buffer.
     let rc = unsafe {
         CallNtPowerInformation(
             PROCESSOR_INFORMATION,
@@ -688,6 +751,7 @@ impl Sampler {
         let energy = pdh.add(r"\Energy Meter(*)\Power");
         let thermal = pdh.add(r"\Thermal Zone Information(*)\Temperature");
 
+        // SAFETY: the call takes no pointers and has no preconditions.
         let cpus = unsafe { GetActiveProcessorCount(ALL_PROCESSOR_GROUPS) as usize }.max(1);
         let kinds = {
             let k = core_kinds();
@@ -756,7 +820,13 @@ impl Sampler {
 
         // ---- CPU ----------------------------------------------------------
         let mut cpu = Cpu {
-            util: self.cpu_total.and_then(|c| c.value()).unwrap_or(0.0) as f32,
+            // `% Processor Utility` can exceed 100% when a core runs above its
+            // nominal frequency; every consumer here treats 100 as full scale.
+            util: self
+                .cpu_total
+                .and_then(|c| c.value())
+                .unwrap_or(0.0)
+                .clamp(0.0, 100.0) as f32,
             ..Default::default()
         };
 
@@ -806,11 +876,23 @@ impl Sampler {
             }
         }
 
-        let mut memory: BTreeMap<String, u64> = BTreeMap::new();
-        for counter in [self.gpu_dedicated, self.gpu_shared].into_iter().flatten() {
+        // Discrete cards report real VRAM and only their dedicated allocations
+        // count against it; integrated GPUs share system memory, so both pools
+        // are summed. Mixing the two would let "used" exceed "total".
+        let mut dedicated_used: BTreeMap<String, u64> = BTreeMap::new();
+        let mut shared_used: BTreeMap<String, u64> = BTreeMap::new();
+        if let Some(counter) = self.gpu_dedicated {
             for (instance, value) in counter.array() {
                 if let Some(luid) = parse_adapter_instance(&instance) {
-                    let entry = memory.entry(luid).or_insert(0);
+                    let entry = dedicated_used.entry(luid).or_insert(0);
+                    *entry = entry.saturating_add(value as u64);
+                }
+            }
+        }
+        if let Some(counter) = self.gpu_shared {
+            for (instance, value) in counter.array() {
+                if let Some(luid) = parse_adapter_instance(&instance) {
+                    let entry = shared_used.entry(luid).or_insert(0);
                     *entry = entry.saturating_add(value as u64);
                 }
             }
@@ -843,15 +925,26 @@ impl Sampler {
                 .kmt
                 .as_ref()
                 .and_then(|kmt| adapter_key_luid(&adapter.key).and_then(|l| kmt.clock(l)));
-            let total = adapter.dedicated.saturating_add(adapter.shared);
-            let used = memory.get(&adapter.key).copied().unwrap_or(0);
+            let dedicated = dedicated_used.get(&adapter.key).copied().unwrap_or(0);
+            let shared = shared_used.get(&adapter.key).copied().unwrap_or(0);
+            let discrete = adapter.dedicated > 1024 * 1024 * 1024;
+            let total = if discrete {
+                adapter.dedicated
+            } else {
+                adapter.dedicated.saturating_add(adapter.shared)
+            };
+            let used = if discrete {
+                dedicated
+            } else {
+                dedicated.saturating_add(shared)
+            };
             snapshot.gpus.push(Gpu {
                 name: fmt::pretty_gpu_name(&adapter.name),
                 util: engines.iter().map(|e| e.util).fold(0.0, f32::max),
                 engines,
                 cur_mhz: clock.map(|c| c.0),
                 max_mhz: clock.map(|c| c.1),
-                mem_used: (used > 0).then_some(used),
+                mem_used: (used > 0 && total > 0).then_some(used.min(total)),
                 mem_total: (total > 0).then_some(total),
                 watts: None, // filled from the energy meter below
             });
@@ -862,7 +955,8 @@ impl Sampler {
         // NPU. Memory instances exist even while the NPU is asleep, so the
         // device is still listed at 0%.
         let mut luids: std::collections::BTreeSet<String> = by_luid.keys().cloned().collect();
-        luids.extend(memory.keys().cloned());
+        luids.extend(dedicated_used.keys().cloned());
+        luids.extend(shared_used.keys().cloned());
 
         for luid in &luids {
             if known.iter().any(|k| k == luid) || self.software.iter().any(|k| k == luid) {
@@ -882,6 +976,8 @@ impl Sampler {
             length: std::mem::size_of::<MemoryStatusEx>() as u32,
             ..Default::default()
         };
+        // SAFETY: `length` is set to the size of the struct, as the API
+        // requires, and `mem` is a valid out-param.
         if unsafe { GlobalMemoryStatusEx(&mut mem) } != 0 {
             snapshot.mem = Mem {
                 used: mem.total_phys.saturating_sub(mem.avail_phys),
@@ -932,6 +1028,7 @@ impl Sampler {
         }
 
         let mut status = SystemPowerStatus::default();
+        // SAFETY: `status` is a valid zeroed out-param.
         if unsafe { GetSystemPowerStatus(&mut status) } != 0 {
             if status.battery_life_pct <= 100 {
                 self.power.battery_pct = Some(status.battery_life_pct);
@@ -1005,5 +1102,23 @@ mod tests {
         let key = "luid_0x00000000_0x0001221c";
         let luid = adapter_key_luid(key).unwrap();
         assert_eq!(luid_key(luid), key);
+    }
+
+    /// These structures are passed to Win32; a field reorder or a size change
+    /// would be silently accepted by the compiler and corrupt the call.
+    #[test]
+    fn ffi_layouts_match_the_c_abi() {
+        use std::mem::{offset_of, size_of};
+
+        assert_eq!(size_of::<FmtValue>(), 16);
+        assert_eq!(offset_of!(FmtValue, value), 8);
+        assert_eq!(size_of::<FmtItem>(), 24);
+        assert_eq!(size_of::<KmtOpen>(), 12);
+        assert_eq!(size_of::<KmtQuery>(), 24);
+        assert_eq!(size_of::<NodePerfData>(), 56);
+        assert_eq!(size_of::<GroupAffinity>(), 16);
+        assert_eq!(size_of::<LpiExHead>(), 8);
+        assert_eq!(size_of::<ProcessorHead>(), 24);
+        assert_eq!(size_of::<SystemPowerStatus>(), 12);
     }
 }

@@ -108,7 +108,8 @@ pub fn pretty_npu_name(raw: &str) -> String {
     name
 }
 
-/// "Qualcomm(R) Adreno(TM) X1-85 GPU" -> "Adreno X1-85"
+/// "Qualcomm(R) Adreno(TM) X1-85 GPU" -> "Adreno X1-85"; other vendors keep
+/// their own name.
 pub fn pretty_gpu_name(raw: &str) -> String {
     let cleaned = raw
         .replace("Qualcomm(R)", "")
@@ -116,12 +117,23 @@ pub fn pretty_gpu_name(raw: &str) -> String {
         .replace("(TM)", "")
         .replace("(C)", "");
     let mut name = cleaned.split_whitespace().collect::<Vec<_>>().join(" ");
-    name = name.trim_start_matches("Adreno").trim().to_string();
+
+    let lower = name.to_ascii_lowercase();
+    if let Some(at) = lower.find("adreno") {
+        let rest = name[at + "adreno".len()..].trim();
+        let rest = rest.trim_end_matches(" GPU").trim();
+        return if rest.is_empty() {
+            "Adreno GPU".to_string()
+        } else {
+            format!("Adreno {rest}")
+        };
+    }
+
     name = name.trim_end_matches(" GPU").trim().to_string();
     if name.is_empty() {
         "GPU".to_string()
     } else {
-        format!("Adreno {name}")
+        name
     }
 }
 
@@ -146,6 +158,14 @@ mod tests {
         assert_eq!(
             pretty_gpu_name("Qualcomm(R) Adreno(TM) X1-85 GPU"),
             "Adreno X1-85"
+        );
+        assert_eq!(
+            pretty_gpu_name("NVIDIA GeForce RTX 4090"),
+            "NVIDIA GeForce RTX 4090"
+        );
+        assert_eq!(
+            pretty_gpu_name("Intel(R) Arc(TM) Graphics GPU"),
+            "Intel Arc Graphics"
         );
     }
 
