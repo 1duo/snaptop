@@ -1,20 +1,9 @@
-//! Windows backend.
+//! Windows backend: PDH counters for CPU/GPU/NPU utilisation, DXGI for adapter
+//! identity and memory, D3DKMT for GPU clocks, the registry for names, and the
+//! Energy Meter rails for power.
 //!
-//! Everything here rides on interfaces Windows already ships, so `snaptop`
-//! needs no SDK, no driver and no administrator rights:
-//!
-//! * CPU utilisation      `\Processor Information(*)\% Processor Utility` (PDH)
-//! * CPU clocks           `CallNtPowerInformation(ProcessorInformation)`
-//! * CPU P/E split        `GetLogicalProcessorInformationEx` (EfficiencyClass)
-//! * GPU / NPU engines    `\GPU Engine(*)\Utilization Percentage` (PDH)
-//! * GPU memory           `\GPU Adapter Memory(*)` + DXGI
-//! * GPU clock            `D3DKMTQueryAdapterInfo(KMTQAITYPE_NODEPERFDATA)`
-//! * Power                `\Energy Meter(*)\Power` (milliwatts, Snapdragon EMI)
-//! * Thermal              `\Thermal Zone Information(*)\Temperature` (Kelvin)
-//!
-//! The NPU has no dedicated counter set. Windows models it as an MCDM compute
-//! accelerator, which appears in `\GPU Engine` under a LUID that belongs to no
-//! DXGI adapter. That LUID *is* the NPU, and it is how Task Manager finds it.
+//! The NPU is the MCDM compute accelerator: a LUID in `\GPU Engine` that belongs
+//! to no DXGI adapter. That is also how Task Manager finds it.
 
 use std::collections::BTreeMap;
 use std::ffi::c_void;
@@ -33,8 +22,6 @@ const PDH_FMT_DOUBLE: u32 = 0x0000_0200;
 const PDH_MORE_DATA: u32 = 0x8000_07D2;
 const PDH_CSTATUS_VALID_DATA: u32 = 0x0000_0000;
 const PDH_CSTATUS_NEW_DATA: u32 = 0x0000_0001;
-
-// ---------------------------------------------------------------- PDH ------
 
 #[repr(C)]
 #[derive(Clone, Copy)]
@@ -159,7 +146,7 @@ impl Counter {
         (rc == 0).then_some(value.value)
     }
 
-    /// Every instance of a wildcard counter, e.g. every process on every GPU.
+    /// Every instance of a wildcard counter.
     fn array(&self) -> Vec<(String, f64)> {
         let mut size = 0u32;
         let mut count = 0u32;
@@ -221,8 +208,6 @@ impl Counter {
     }
 }
 
-// ---------------------------------------------------------------- DXGI -----
-
 use windows::Win32::Foundation::LUID;
 use windows::Win32::Graphics::Dxgi::{CreateDXGIFactory1, IDXGIFactory1};
 
@@ -241,9 +226,8 @@ fn luid_key(luid: LUID) -> String {
 fn dxgi_adapters() -> (Vec<Adapter>, Vec<String>) {
     let mut out = Vec::new();
     let mut software = Vec::new();
-    // SAFETY: CreateDXGIFactory1 returns an owned COM interface; every adapter
-    // reference is released by its `Drop` impl and the factory is released at
-    // the end of this block.
+    // SAFETY: CreateDXGIFactory1 returns an owned COM interface; every
+    // reference is released by Drop.
     unsafe {
         let factory: IDXGIFactory1 = match CreateDXGIFactory1() {
             Ok(f) => f,
@@ -257,9 +241,8 @@ fn dxgi_adapters() -> (Vec<Adapter>, Vec<String>) {
                     .iter()
                     .position(|&c| c == 0)
                     .unwrap_or(desc.Description.len());
-                // 0x2 = DXGI_ADAPTER_FLAG_SOFTWARE (WARP / Basic Render Driver).
-                // Those also emit \GPU Engine instances and must never be
-                // mistaken for the NPU, so remember their LUIDs.
+                // 0x2 = DXGI_ADAPTER_FLAG_SOFTWARE. WARP also emits engine
+                // counters, so remember it: it must never look like an NPU.
                 if desc.Flags & 0x2 != 0 {
                     software.push(luid_key(desc.AdapterLuid));
                 } else {
@@ -276,8 +259,6 @@ fn dxgi_adapters() -> (Vec<Adapter>, Vec<String>) {
     }
     (out, software)
 }
-
-// ------------------------------------------------------------- D3DKMT ------
 
 #[repr(C)]
 struct KmtOpen {
@@ -332,9 +313,8 @@ unsafe extern "system" {
 
 impl Kmt {
     fn load() -> Option<Self> {
-        // SAFETY: `gdi32.dll` is a system module; the three names are the
-        // documented D3DKMT entry points and are transmuted to exactly the
-        // signatures restated at the top of this section.
+        // SAFETY: gdi32 is a system module; each address is transmuted to the
+        // exact D3DKMT signature declared above.
         unsafe {
             let mut module = GetModuleHandleW(wide("gdi32.dll").as_ptr());
             if module.is_null() {
@@ -357,12 +337,10 @@ impl Kmt {
         }
     }
 
-    /// Current and maximum engine clock in MHz, if the driver implements the
-    /// optional KMT node performance DDI.
+    /// Engine clock in MHz, when the driver implements the optional DDI.
     fn clock(&self, luid: LUID) -> Option<(u32, u32)> {
-        // SAFETY: the adapter is opened from a LUID obtained from DXGI; each
-        // query buffer matches `NodePerfData`'s size and layout, and the
-        // adapter is closed on every path after a successful open.
+        // SAFETY: the LUID comes from DXGI; each buffer matches NodePerfData's
+        // layout, and the adapter is closed on every path after opening.
         unsafe {
             let mut open = KmtOpen { luid, handle: 0 };
             if (self.open)(&mut open) != 0 {
@@ -395,8 +373,6 @@ impl Kmt {
     }
 }
 
-// ----------------------------------------------------- CPU topology --------
-
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct GroupAffinity {
@@ -405,9 +381,8 @@ struct GroupAffinity {
     reserved: [u16; 3],
 }
 
-/// Fixed head of `SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX`. The real entry has
-/// a variable-length affinity tail, so it is read through this header and raw
-/// pointer arithmetic rather than a `&Struct` with a `[T; 1]` tail.
+/// Fixed head of `SYSTEM_LOGICAL_PROCESSOR_INFORMATION_EX`; the affinity tail
+/// is variable-length, so it is read with raw pointers, not `[T; 1]`.
 #[repr(C)]
 #[derive(Clone, Copy)]
 struct LpiExHead {
@@ -490,10 +465,8 @@ unsafe extern "system" {
 
 /// Logical processor -> P/E class, from the firmware's EfficiencyClass.
 fn core_kinds() -> Vec<CoreKind> {
-    // SAFETY: the documented two-step GetLogicalProcessorInformationEx
-    // protocol is used: a null buffer asks for the required length, then the
-    // same call fills a buffer of at least that size. Every read below is
-    // bounded by the returned `len` and by each entry's own `size` field.
+    // SAFETY: GetLogicalProcessorInformationEx is called twice as documented
+    // (size probe, then fill); every read is bounded by `len` and entry `size`.
     unsafe {
         let mut len = 0u32;
         if GetLogicalProcessorInformationEx(RELATION_PROCESSOR_CORE, null_mut(), &mut len) != 0 {
@@ -540,9 +513,8 @@ fn core_kinds() -> Vec<CoreKind> {
                 let max_groups = (offset + size - mask_at) / mask_len;
                 let masks = base.add(mask_at).cast::<GroupAffinity>();
                 for g in 0..group_count.min(max_groups) {
-                    // SAFETY: `g` is bounded by the number of GroupAffinity
-                    // records that physically fit in this entry. `read_unaligned`
-                    // keeps this valid even if an entry is not 8-byte padded.
+                    // SAFETY: `g` fits in this entry; `read_unaligned` does not
+                    // require the record to be 8-byte padded.
                     let affinity = masks.add(g).read_unaligned();
                     for bit in 0..64usize {
                         if affinity.mask & (1usize << bit) != 0 {
@@ -616,8 +588,6 @@ fn cpu_clocks(count: usize) -> Vec<(u32, u32)> {
     out
 }
 
-// --------------------------------------------------------- registry --------
-
 fn reg_string(path: &str, name: &str) -> Option<String> {
     RegKey::predef(HKEY_LOCAL_MACHINE)
         .open_subkey(path)
@@ -666,8 +636,6 @@ fn npu_name() -> String {
     "NPU".to_string()
 }
 
-// ------------------------------------------------------------ parsing ------
-
 /// `pid_1234_luid_0x00000000_0x00011643_phys_0_eng_0_engtype_3D`
 fn parse_engine_instance(instance: &str) -> Option<(String, String)> {
     let lower = instance.to_ascii_lowercase();
@@ -712,8 +680,6 @@ fn engine_rank(name: &str) -> u8 {
         _ => 9,
     }
 }
-
-// ------------------------------------------------------------- sampler -----
 
 pub struct Sampler {
     device: DeviceInfo,
@@ -785,8 +751,7 @@ impl Sampler {
             npu_name: npu.clone(),
         };
 
-        // Prime the rate counters. The first sample after this is meaningful;
-        // PDH needs two collections separated by a non-zero interval.
+        // Prime the rate counters; PDH needs two collections.
         pdh.collect();
 
         Ok(Self {
@@ -876,9 +841,8 @@ impl Sampler {
             }
         }
 
-        // Discrete cards report real VRAM and only their dedicated allocations
-        // count against it; integrated GPUs share system memory, so both pools
-        // are summed. Mixing the two would let "used" exceed "total".
+        // Discrete cards count dedicated allocations against VRAM; integrated
+        // GPUs share system memory, so both pools are summed.
         let mut dedicated_used: BTreeMap<String, u64> = BTreeMap::new();
         let mut shared_used: BTreeMap<String, u64> = BTreeMap::new();
         if let Some(counter) = self.gpu_dedicated {
@@ -950,10 +914,8 @@ impl Sampler {
             });
         }
 
-        // Any LUID with engine traffic or adapter memory that no DXGI adapter
-        // claims is an MCDM compute accelerator: on Snapdragon, the Hexagon
-        // NPU. Memory instances exist even while the NPU is asleep, so the
-        // device is still listed at 0%.
+        // A LUID with engine or memory counters that no DXGI adapter claims is
+        // an MCDM accelerator: the NPU. Memory instances exist even when idle.
         let mut luids: std::collections::BTreeSet<String> = by_luid.keys().cloned().collect();
         luids.extend(dedicated_used.keys().cloned());
         luids.extend(shared_used.keys().cloned());
@@ -986,9 +948,8 @@ impl Sampler {
         }
 
         // ---- power --------------------------------------------------------
-        // The energy meter updates on its own ~1 s cadence. Sampling it faster
-        // yields zeros, so the rails are cached and refreshed at most once a
-        // second, independently of the UI interval.
+        // The energy meter updates at ~1 Hz; sampling faster reads zeros, so
+        // the rails are cached and refreshed at most once a second.
         let now = Instant::now();
         let refresh = self
             .power_at
@@ -1015,8 +976,7 @@ impl Sampler {
                         _ => {}
                     }
                 }
-                // "SYS" is the platform rail; `_Total` is the fallback for
-                // builds that do not name it.
+                // SYS is the platform rail; _Total is the fallback.
                 power.sys_w = sys.or(total);
                 if cpu_seen {
                     power.cpu_w = Some(cpu_w);

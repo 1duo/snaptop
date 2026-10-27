@@ -1,8 +1,6 @@
-//! snaptop — a fast, elegant top for Snapdragon laptops.
+//! snaptop — CPU, GPU, NPU and power for Snapdragon laptops.
 //!
-//! The binary is deliberately small in scope: one sampler thread, one screen,
-//! a stable JSON mode. Anything that is not "what is the chip doing right now"
-//! belongs in a different tool.
+//! One sampler thread, one screen, a stable JSON mode.
 
 #![deny(clippy::undocumented_unsafe_blocks)]
 
@@ -62,8 +60,6 @@ fn main() {
         std::process::exit(1);
     }
 }
-
-// ------------------------------------------------------------- args --------
 
 fn parse_args() -> Result<Args, String> {
     let mut args = Args {
@@ -191,11 +187,7 @@ EXAMPLES
     );
 }
 
-// --------------------------------------------------------- headless --------
-
-/// Render a single real frame with ratatui's test backend and print it as
-/// plain text. Terminal-agnostic, which makes it the right artifact for a bug
-/// report and the honest source for the README screenshot.
+/// Render one real frame as plain text, for bug reports and the README.
 fn run_preview(args: &Args) -> Result<(), String> {
     use ratatui::Terminal;
     use ratatui::backend::TestBackend;
@@ -205,15 +197,13 @@ fn run_preview(args: &Args) -> Result<(), String> {
     thread::sleep(Duration::from_millis(400));
 
     let mut app = App::new(device, args.interval_ms, args.theme);
-    // A single sample would draw a flat line. Collect a short real trace so a
-    // preview shows the dashboard doing its job.
+    // A few real samples make the preview show a trace, not a flat line.
     for _ in 0..200 {
         let snapshot = sampler.sample()?;
         app.update(snapshot);
         thread::sleep(Duration::from_millis(20));
     }
-    // The energy meter is a rate counter; a 20 ms delta reads as zero. Let a
-    // full second elapse before the sample that the numbers are taken from.
+    // A 20 ms delta reads zero on the energy meter; let it accumulate 1 s.
     thread::sleep(Duration::from_millis(1000));
     let snapshot = sampler.sample()?;
     app.update(snapshot);
@@ -241,8 +231,7 @@ fn run_headless(args: &Args) -> Result<(), String> {
     let mut sampler = Sampler::new()?;
     let device = sampler.device();
 
-    // PDH rate counters need two collections separated by a real interval;
-    // the energy meter itself updates at ~1 Hz.
+    // PDH needs a real delta; the energy meter updates at ~1 Hz.
     thread::sleep(Duration::from_millis(1050));
 
     let limit = args.count.unwrap_or(if args.once { 1 } else { u64::MAX });
@@ -470,8 +459,6 @@ fn round2(value: f32) -> f32 {
     (value * 100.0).round() / 100.0
 }
 
-// -------------------------------------------------------------- TUI --------
-
 fn run_tui(args: &Args) -> Result<(), String> {
     let (device, snapshots, interval, stop, sampler) = spawn_sampler(args.interval_ms)?;
     let mut app = App::new(device, args.interval_ms, args.theme);
@@ -479,8 +466,7 @@ fn run_tui(args: &Args) -> Result<(), String> {
     let hook = std::panic::take_hook();
     let main_thread = std::thread::current().id();
     std::panic::set_hook(Box::new(move |info| {
-        // A sampler-thread panic must not tear down the terminal the UI thread
-        // is still drawing to.
+        // Only the UI thread may restore the terminal.
         if std::thread::current().id() == main_thread {
             ratatui::restore();
         }
@@ -542,7 +528,7 @@ fn tui_loop(
             }
         }
 
-        // Newest sample wins; draining keeps the UI current after a stall.
+        // Newest sample wins.
         let mut latest = None;
         while let Ok(snapshot) = snapshots.try_recv() {
             latest = Some(snapshot);
@@ -585,8 +571,7 @@ fn spawn_sampler(interval_ms: u64) -> Result<SamplerThread, String> {
         if device_tx.send(Ok(sampler.device())).is_err() {
             return;
         }
-        // The counter query was primed in `new()`, but PDH needs a real delta
-        // before the first rate reads are meaningful.
+        // PDH needs a real delta before the first rate reads are meaningful.
         thread::sleep(Duration::from_millis(150));
 
         let mut last: Option<Instant> = None;

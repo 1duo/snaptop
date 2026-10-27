@@ -1,7 +1,7 @@
 # snaptop
 
 **CPU, GPU, NPU and power in one terminal.** A fast, single-binary `top` for
-Windows on Snapdragon. No SDK, no driver, and no admin prompt on Snapdragon.
+Windows on Snapdragon — no SDK, no driver, no admin prompt.
 
 ```
 CPU   7% █████░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░░  3.42 GHz · 5.0 W
@@ -14,7 +14,7 @@ SYS 15.8 W · SoC 59 °C · BAT 100% AC
 ```
 
 <sub>Condensed from a real `snaptop --preview` frame on a Snapdragon X Elite
-X1E78100. The full 28-row frame is in [docs/how-it-works.md](docs/how-it-works.md).</sub>
+X1E78100.</sub>
 
 ## Install
 
@@ -46,10 +46,9 @@ snaptop --theme nebula        aurora (default), nebula, mono
 
 Keys: `q` quit · `space` pause · `+`/`-` speed · `r` reset history · `t` theme · `?` help.
 
-The NPU is the MCDM compute accelerator: a LUID that appears in the GPU engine
-counters but belongs to no DXGI adapter. Power comes from the Snapdragon energy
-meter rails. Sources, design notes and limitations:
-[docs/how-it-works.md](docs/how-it-works.md).
+The NPU is the MCDM accelerator Windows exposes as a LUID no DXGI adapter
+claims; power comes from the Snapdragon energy-meter rails. Sources and design
+notes: [docs/how-it-works.md](docs/how-it-works.md).
 
 ## Limits
 

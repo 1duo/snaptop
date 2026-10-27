@@ -1,6 +1,4 @@
-//! Rendering. Hand-painted on top of ratatui's Buffer: meters, braille
-//! sparklines and per-core bars all need per-cell colour, which widgets do
-//! not expose cleanly.
+//! Rendering: meters, braille sparklines and per-core bars, painted per cell.
 
 use ratatui::Frame;
 use ratatui::buffer::Buffer;
@@ -150,7 +148,6 @@ fn draw_body(buf: &mut Buffer, body: Rect, app: &App, p: &Palette, compact: bool
     let mut y = body.y;
     let snap = &app.snapshot;
 
-    // CPU
     let cpu_right = format!(
         "{} · {}",
         fmt::mhz(Some(snap.cpu.cur_mhz)),
@@ -176,7 +173,6 @@ fn draw_body(buf: &mut Buffer, body: Rect, app: &App, p: &Palette, compact: bool
     );
     y += accel_h + gap;
 
-    // GPU
     let gpu = snap.gpu();
     let gpu_util = gpu.map(|g| g.util).unwrap_or(0.0);
     let gpu_right = match gpu {
@@ -210,7 +206,6 @@ fn draw_body(buf: &mut Buffer, body: Rect, app: &App, p: &Palette, compact: bool
     );
     y += accel_h + gap;
 
-    // NPU
     let npu = snap.npu();
     let npu_util = npu.map(|n| n.util).unwrap_or(0.0);
     let npu_right = npu
@@ -245,7 +240,6 @@ fn draw_body(buf: &mut Buffer, body: Rect, app: &App, p: &Palette, compact: bool
     );
     y += accel_h + gap;
 
-    // Memory
     let mem_pct = snap.mem.pct();
     let mem_sub = fmt::gib_pair(snap.mem.used, snap.mem.total);
     draw_mem(
@@ -325,7 +319,7 @@ fn npu_subline(app: &App) -> String {
     parts.join(" · ")
 }
 
-/// 12 cores in 24 columns: one eight-level block per core, grouped P | E.
+/// One eight-level block per core, grouped P | E.
 fn core_bars(cpu: &crate::model::Cpu, max: usize) -> String {
     const LEVELS: [char; 8] = ['▁', '▂', '▃', '▄', '▅', '▆', '▇', '█'];
     let mut out = String::new();
@@ -525,8 +519,7 @@ fn draw_sparkline(buf: &mut Buffer, rect: Rect, data: &[f32], accent: Color, p: 
         let take = data.len().min(want);
         let tail = &data[data.len() - take..];
         let offset = want - take;
-        // Before the trace has filled the width, hold the oldest sample so the
-        // line starts flat rather than in a misleading zero corner.
+        // Hold the oldest sample until the trace fills the width.
         for value in samples[..offset].iter_mut() {
             *value = tail[0];
         }

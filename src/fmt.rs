@@ -1,5 +1,4 @@
-//! Small, dependency-free formatting helpers. Everything is tuned for the
-//! narrow columns of a terminal, so values stay short and stable-width.
+//! Terminal-width formatting helpers.
 
 pub fn pct(v: f32) -> String {
     format!("{:.0}%", v.clamp(0.0, 999.0))

@@ -1,7 +1,4 @@
 //! Fixed-capacity history buffers for the sparklines.
-//!
-//! Keeping this independent of the sampler means the UI can be paused,
-//! resized, or re-themed without disturbing the shape of the trace.
 
 use std::collections::VecDeque;
 

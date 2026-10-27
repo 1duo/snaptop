@@ -1,5 +1,4 @@
-//! UI state. The frontend is deliberately dumb: it renders whatever snapshot
-//! it was handed and keeps only presentation history.
+//! UI state: the last snapshot plus presentation history.
 
 use std::time::{Duration, Instant};
 
