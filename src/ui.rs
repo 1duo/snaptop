@@ -28,7 +28,7 @@ pub fn draw(f: &mut Frame, app: &App) {
         return;
     }
 
-    let compact = area.height < 22;
+    let compact = area.height < 21;
     let header_h = if compact { 2 } else { 3 };
 
     draw_header(
