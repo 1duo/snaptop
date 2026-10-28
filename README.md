@@ -1,8 +1,7 @@
 <p align="center"><img src="docs/logo-mark.png" width="104" alt="snaptop"></p>
 
 <p align="center"><strong>snaptop</strong> — a fast, single-binary <code>top</code> for Snapdragon laptops.<br>
-CPU, GPU, NPU and power in one clean view. No SDK, no driver.<br>
-<sub>Tested on X Elite; X2 Elite topology and power rails are detected at runtime.</sub></p>
+CPU, GPU, NPU and power in one clean view. No SDK, no driver.</p>
 
 <p align="center"><img src="docs/screenshot.png" alt="snaptop dashboard: CPU, GPU, NPU, memory and power" width="1000"></p>
 
@@ -22,7 +21,7 @@ until it is merged, build from source:
 ```powershell
 git clone https://github.com/1duo/snaptop
 cd snaptop
-cargo build --release          # Rust 1.88+
+cargo build --release
 copy target\release\snaptop.exe "$env:LOCALAPPDATA\Microsoft\WindowsApps\"
 ```
 
