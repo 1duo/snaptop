@@ -27,6 +27,8 @@ jobs:
     steps:
       - uses: actions/checkout@v5
       - uses: dtolnay/rust-toolchain@stable
+      - name: Winget
+        run: winget --version
       - name: Test
         run: cargo test
       - name: Build
