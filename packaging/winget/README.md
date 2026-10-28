@@ -14,11 +14,11 @@ computes the SHA256, generates the three manifests with
 `New-WingetManifests.ps1`, validates them, and attaches the ZIP and manifests
 to the release. The hash can never drift from the asset.
 
-Submit once per release:
+Submit once per release, from the repository root:
 
 ```powershell
 winget install Microsoft.WingetCreate
-wingetcreate submit --token <GITHUB_PAT> .\out
+wingetcreate submit --token <GITHUB_PAT> .\packaging\winget\out
 ```
 
 That opens a PR against `microsoft/winget-pkgs`; after it merges, the install

@@ -434,13 +434,20 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
 
     match s.gpu() {
         Some(gpu) => {
+            let memory = match (gpu.mem_used, gpu.mem_total) {
+                (Some(used), Some(total)) => format!(
+                    " · {:.1}/{:.1} GiB",
+                    used as f64 / 1_073_741_824.0,
+                    total as f64 / 1_073_741_824.0
+                ),
+                _ => String::new(),
+            };
             println!(
-                "GPU  {} {:>4}   {} · {:.1}/{:.1} GiB · {}",
+                "GPU  {} {:>4}   {}{} · {}",
                 bar(gpu.util),
                 fmt::pct(gpu.util),
                 fmt::mhz_pair(gpu.cur_mhz, gpu.max_mhz),
-                gpu.mem_used.unwrap_or(0) as f64 / 1073741824.0,
-                gpu.mem_total.unwrap_or(0) as f64 / 1073741824.0,
+                memory,
                 fmt::watts(gpu.watts)
             );
             let engines = gpu
@@ -458,11 +465,16 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
 
     match s.npu() {
         Some(npu) => {
+            let power = npu
+                .watts
+                .map(|w| format!(" · {}", fmt::watts(Some(w))))
+                .unwrap_or_default();
             println!(
-                "NPU  {} {:>4}   {}",
+                "NPU  {} {:>4}   {}{}",
                 bar(npu.util),
                 fmt::pct(npu.util),
-                npu.name
+                npu.name,
+                power
             );
         }
         None => println!("NPU  not found"),
@@ -491,6 +503,9 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
     }
     if let Some(w) = s.power.gpu_w {
         tail.push(format!("GPU {}", fmt::watts(Some(w))));
+    }
+    if let Some(w) = s.power.npu_w {
+        tail.push(format!("NPU {}", fmt::watts(Some(w))));
     }
     if let Some(t) = s.thermal_c {
         tail.push(format!("SoC {}", fmt::temp(Some(t))));
