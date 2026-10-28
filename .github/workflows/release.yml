@@ -8,7 +8,7 @@ permissions:
   contents: write
 
 jobs:
-  release:
+  build-arm64:
     runs-on: windows-11-arm
     steps:
       - uses: actions/checkout@v5
@@ -32,6 +32,23 @@ jobs:
       - name: Smoke test
         run: .\target\release\snaptop.exe --version
 
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snaptop-arm64
+          path: target/release/snaptop.exe
+          if-no-files-found: error
+
+  publish:
+    needs: build-arm64
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: snaptop-arm64
+          path: dist
+
       - name: Package
         shell: pwsh
         run: |
@@ -44,7 +61,7 @@ jobs:
             throw "Tag says $version but Cargo.toml says $cargo"
           }
           $zip = "snaptop-v$version-arm64.zip"
-          Copy-Item "target/release/snaptop.exe" "snaptop.exe"
+          Copy-Item "dist/snaptop.exe" "snaptop.exe"
           Compress-Archive -Path "snaptop.exe", "LICENSE" -DestinationPath $zip
           $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash
           "VERSION=$version" >> $env:GITHUB_ENV
