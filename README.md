@@ -48,6 +48,7 @@ notes: [docs/how-it-works.md](docs/how-it-works.md).
 - Windows only today; the Linux backend is the next milestone.
 - Aggregate utilisation — no per-process attribution yet (`nptop` covers that).
 - NPU power is shown when the platform exposes a rail; GPU clocks are optional.
+- Some systems gate the GPU Engine counters behind an elevated shell.
 
 ## License
 

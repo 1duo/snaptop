@@ -71,6 +71,8 @@ P/E split.
 - Aggregate utilisation, no per-process attribution yet.
 - NPU power is shown only when the platform exposes a rail; GPU clocks depend
   on an optional driver DDI.
+- GPU Engine counters are usually readable unelevated, but some systems gate
+  them behind an elevated shell.
 - Power rails are Snapdragon-specific; elsewhere the row is absent.
 - NPU detection assumes the MCDM-LUID shape.
 
