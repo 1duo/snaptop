@@ -7,14 +7,17 @@ cargo build --release
 .\target\release\snaptop.exe --capture docs\frame.html --theme dark
 
 $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
-& $chrome --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=2 `
+& $chrome --headless=new --disable-gpu --hide-scrollbars `
+  --default-background-color=00000000 --force-device-scale-factor=2 `
   --window-size=1000,640 --screenshot=docs\screenshot.png `
   "file:///$((Get-Location).Path -replace '\\','/')/docs/frame.html"
 
 Remove-Item docs\frame.html
+.\docs\trim-transparent.ps1 docs\screenshot.png
 ```
 
-The 1000 × 640 viewport leaves a small gradient margin around the card; the
-committed image is 2000 × 1280. Edge works with the same flags. The HTML uses Cascadia Mono if it is installed,
-then Consolas; the frame is sampled over ~10 s at 100 ms so the history has a
-real trace.
+The page has no background, so Chrome writes the rounded window with
+transparent corners; the crop removes the viewport margin and leaves the window
+alone. Edge works with the same flags. The HTML uses Cascadia Mono if it is
+installed, then Consolas; the frame is sampled over ~10 s at 100 ms so the
+history has a real trace.

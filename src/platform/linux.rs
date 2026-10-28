@@ -9,10 +9,7 @@ pub struct Sampler;
 
 impl Sampler {
     pub fn new() -> Result<Self, String> {
-        Err(
-            "the Linux backend is not implemented yet; Windows on Snapdragon is the current target"
-                .to_string(),
-        )
+        Err("the Linux backend is not implemented yet; Windows is the current target".to_string())
     }
 
     pub fn device(&self) -> DeviceInfo {

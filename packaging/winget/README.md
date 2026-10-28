@@ -11,8 +11,8 @@ winget uninstall 1duo.snaptop
 
 `.github/workflows/release.yml` runs on a `v*` tag: builds ARM64, zips it,
 computes the SHA256, generates the three manifests with
-`New-WingetManifests.ps1`, validates them, and attaches both to the release. The
-hash can never drift from the asset.
+`New-WingetManifests.ps1`, validates them, and attaches the ZIP and manifests
+to the release. The hash can never drift from the asset.
 
 Submit once per release:
 

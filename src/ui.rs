@@ -1,4 +1,4 @@
-//! Rendering: mactop-style panels, meters, per-core bars and braille history.
+//! Rendering: top-style panels, meters, per-core bars and braille history.
 
 use ratatui::Frame;
 use ratatui::buffer::Buffer;

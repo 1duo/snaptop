@@ -186,8 +186,7 @@ WHAT IT READS
     Thermal           \\Thermal Zone Information(*)\\Temperature
 
     The NPU is the MCDM compute accelerator: a LUID that appears in the GPU
-    engine counters but belongs to no DXGI adapter. No driver or admin rights
-    are required.
+    engine counters but belongs to no DXGI adapter. No driver is required.
 
 EXAMPLES
     snaptop                       the dashboard
@@ -328,30 +327,42 @@ const CAPTURE_TEMPLATE: &str = r#"<!doctype html>
 <html><head><meta charset="utf-8"><title>snaptop</title>
 <style>
 * { box-sizing: border-box; }
-html, body { margin: 0; height: 100%; }
+html, body { margin: 0; height: 100%; background: transparent; }
 body {
   display: flex; align-items: center; justify-content: center;
-  background: radial-gradient(1200px 600px at 50% 0%, #171d29 0%, #07090d 62%);
   font-family: "Segoe UI", system-ui, sans-serif;
 }
 .window {
-  border-radius: 14px; overflow: hidden;
-  border: 1px solid #2a3140;
+  border-radius: 16px; overflow: hidden;
+  border: 1px solid #303b4d;
   background: %%BG%%;
-  box-shadow: 0 40px 120px rgba(0,0,0,.65);
 }
 .bar {
-  height: 40px; display: flex; align-items: center; gap: 12px;
-  padding: 0 16px; background: #121620; border-bottom: 1px solid #232a37;
+  height: 44px; display: flex; align-items: center; gap: 12px;
+  padding: 0 16px 0 18px;
+  background: linear-gradient(180deg, #171d28 0%, #11151d 100%);
+  border-bottom: 1px solid #222a37;
+  box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
   color: #8c98ab; font-size: 13px;
 }
-.dots { display: flex; gap: 7px; margin-right: 4px; }
-.dots i { display: block; width: 11px; height: 11px; border-radius: 50%; background: #3a4353; }
-.title { color: #c8d2e2; font-weight: 600; letter-spacing: .2px; }
+.dots { display: flex; gap: 7px; margin-right: 6px; }
+.dots i {
+  display: block; width: 12px; height: 12px; border-radius: 50%;
+  box-shadow: inset 0 0 0 1px rgba(0,0,0,.18);
+}
+.dots i:nth-child(1) { background: #ff5f57; }
+.dots i:nth-child(2) { background: #febc2e; }
+.dots i:nth-child(3) { background: #28c840; }
+.title { color: #dbe4f2; font-weight: 600; letter-spacing: .2px; }
 .device { color: #7d8a9e; }
-.meta { margin-left: auto; color: #6f7c91; }
+.meta {
+  margin-left: auto; color: #8492a6;
+  padding: 3px 10px; border-radius: 999px;
+  border: 1px solid #2a3342; background: #0d1118;
+  font-variant-numeric: tabular-nums;
+}
 pre {
-  margin: 0; padding: 18px 20px;
+  margin: 0; padding: 18px 20px 20px;
   font-family: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
   font-size: 15px; line-height: 18px;
   font-variant-ligatures: none; font-feature-settings: "liga" 0, "calt" 0;

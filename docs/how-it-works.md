@@ -1,7 +1,7 @@
 # How snaptop reads the chip
 
 Every value comes from an interface Windows already ships. No SDK, no driver,
-and no admin rights.
+and no background service.
 
 ## Sources
 
@@ -43,9 +43,10 @@ Snapdragon exposes its Energy Meter as ordinary PDH counters:
 \Energy Meter(gpu)\Power             0.1 W
 ```
 
-Measured shunt values, no admin. They update at ~1 Hz, so they are cached at
-that rate. Rail names and counts vary by model, so they are matched by prefix:
-every `cpu_cluster_*` is summed, and an `npu`/`nsp` rail is used when present.
+Measured shunt values exposed by the platform. They update at ~1 Hz, so they
+are cached at that rate. Rail names and counts vary by model, so they are
+matched by prefix: every `cpu_cluster_*` is summed, and an `npu`/`nsp` rail is
+used when present.
 
 ## Hardware
 

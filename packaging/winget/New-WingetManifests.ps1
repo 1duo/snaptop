@@ -91,11 +91,10 @@ LicenseUrl: https://github.com/1duo/snaptop/blob/main/LICENSE
 Copyright: Copyright (c) 2026 Yuduo Wu
 ShortDescription: CPU, GPU, NPU and power monitor for Snapdragon laptops
 Description: |
-  snaptop is a fast, single-binary terminal dashboard for Windows on Snapdragon.
-  It shows CPU utilisation with the P/E core split, Adreno GPU utilisation and
-  clocks, Hexagon NPU utilisation, memory, per-rail power from the Snapdragon
-  energy meter, and the hottest thermal zone, with no driver, SDK or
-  administrator rights required.
+  snaptop is a fast, single-binary terminal dashboard for Snapdragon laptops.
+  It shows CPU utilisation and per-core load, Adreno GPU utilisation and clocks,
+  Hexagon NPU utilisation, memory, per-rail power from the Snapdragon energy
+  meter, and the hottest thermal zone, with no driver or SDK required.
 Moniker: snaptop
 Tags:
   - snapdragon
