@@ -8,12 +8,13 @@ cargo build --release
 
 $chrome = "C:\Program Files\Google\Chrome\Application\chrome.exe"
 & $chrome --headless=new --disable-gpu --hide-scrollbars --force-device-scale-factor=2 `
-  --window-size=1120,760 --screenshot=docs\screenshot.png `
+  --window-size=1000,640 --screenshot=docs\screenshot.png `
   "file:///$((Get-Location).Path -replace '\\','/')/docs/frame.html"
 
 Remove-Item docs\frame.html
 ```
 
-Edge works with the same flags. The HTML uses Cascadia Mono if it is installed,
+The 1000 × 640 viewport leaves a small gradient margin around the card; the
+committed image is 2000 × 1280. Edge works with the same flags. The HTML uses Cascadia Mono if it is installed,
 then Consolas; the frame is sampled over ~10 s at 100 ms so the history has a
 real trace.

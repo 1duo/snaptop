@@ -270,19 +270,25 @@ fn write_capture(
             let first = &buffer[(x, y)];
             let fg = first.fg;
             let bg = first.bg;
+            let bold = first.modifier.contains(ratatui::style::Modifier::BOLD);
             let mut text = String::new();
             while x < width {
                 let cell = &buffer[(x, y)];
-                if cell.fg != fg || cell.bg != bg {
+                if cell.fg != fg
+                    || cell.bg != bg
+                    || cell.modifier.contains(ratatui::style::Modifier::BOLD) != bold
+                {
                     break;
                 }
                 text.push_str(cell.symbol());
                 x += 1;
             }
+            let weight = if bold { "font-weight:700;" } else { "" };
             rows.push_str(&format!(
-                r#"<span style="color:{};background:{}">{}</span>"#,
+                r#"<span style="color:{};background:{};{}">{}</span>"#,
                 css(fg),
                 css(bg),
+                weight,
                 html_escape(&text)
             ));
         }
