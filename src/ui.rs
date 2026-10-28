@@ -101,11 +101,7 @@ fn draw_header(buf: &mut Buffer, area: Rect, app: &App, p: &Palette) {
 }
 
 fn draw_footer(buf: &mut Buffer, area: Rect, app: &App, p: &Palette) {
-    let right = format!(
-        "{} · {:.1}s",
-        theme::name(app.theme),
-        app.interval_ms as f64 / 1000.0
-    );
+    let right = format!("{:.1}s", app.interval_ms as f64 / 1000.0);
     let right_len = right.chars().count() as u16;
     let left_width = area.width.saturating_sub(right_len + 2);
 
@@ -495,7 +491,7 @@ impl Gauge for Npu {
         match self.watts {
             Some(watts) => fmt::watts(Some(watts)),
             None if self.util < 0.5 => "idle".to_string(),
-            None => "no rail".to_string(),
+            None => "—".to_string(),
         }
     }
     fn details(&self) -> String {

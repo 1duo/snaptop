@@ -4,9 +4,9 @@
 CPU, GPU, NPU and power in one clean view. No SDK, no driver.<br>
 <sub>Tested on X Elite; X2 Elite topology and power rails are detected at runtime.</sub></p>
 
-<p align="center"><img src="docs/screenshot.png" alt="snaptop dashboard: CPU, GPU, NPU, memory and power" width="900"></p>
+<p align="center"><img src="docs/screenshot.png" alt="snaptop dashboard: CPU, GPU, NPU, memory and power" width="1000"></p>
 
-<p align="center"><sub>Snapdragon X Elite X1E78100 · aurora theme.</sub></p>
+<p align="center"><sub>Snapdragon X Elite X1E78100.</sub></p>
 
 ## Install
 

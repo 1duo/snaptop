@@ -64,14 +64,9 @@ pub const MONO: Palette = Palette {
 };
 
 pub const PALETTES: [Palette; 3] = [AURORA, DAYLIGHT, MONO];
-pub const NAMES: [&str; 3] = ["aurora", "daylight", "mono"];
 
 pub fn palette(index: usize) -> Palette {
     PALETTES[index.min(PALETTES.len() - 1)]
-}
-
-pub fn name(index: usize) -> &'static str {
-    NAMES[index.min(NAMES.len() - 1)]
 }
 
 pub fn index_of(value: &str) -> Option<usize> {
@@ -172,21 +167,18 @@ mod tests {
         for (index, p) in PALETTES.iter().enumerate() {
             assert!(
                 contrast(p.fg, p.bg) >= 7.0,
-                "{} body text contrast {:.1}",
-                name(index),
+                "palette {index} body text contrast {:.1}",
                 contrast(p.fg, p.bg)
             );
             assert!(
                 contrast(p.dim, p.bg) >= 4.5,
-                "{} dim text contrast {:.1}",
-                name(index),
+                "palette {index} dim text contrast {:.1}",
                 contrast(p.dim, p.bg)
             );
             for accent in [p.cpu, p.gpu, p.npu, p.mem, p.warn, p.bad] {
                 assert!(
                     contrast(accent, p.bg) >= 3.0,
-                    "{} accent contrast {:.1}",
-                    name(index),
+                    "palette {index} accent contrast {:.1}",
                     contrast(accent, p.bg)
                 );
             }

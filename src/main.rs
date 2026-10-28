@@ -299,11 +299,6 @@ fn write_capture(
         .replace("%%FG%%", &css(p.fg))
         .replace("%%DEVICE%%", &html_escape(&app.device.cpu_name))
         .replace("%%OS%%", &html_escape(&app.device.os_name))
-        .replace("%%THEME%%", theme::name(app.theme))
-        .replace(
-            "%%INTERVAL%%",
-            &format!("{:.1}", app.interval_ms as f64 / 1000.0),
-        )
         .replace("%%ROWS%%", &rows);
 
     std::fs::write(path, html).map_err(|e| format!("cannot write {}: {e}", path.display()))
@@ -355,12 +350,6 @@ body {
 .dots i:nth-child(3) { background: #28c840; }
 .title { color: #dbe4f2; font-weight: 600; letter-spacing: .2px; }
 .device { color: #7d8a9e; }
-.meta {
-  margin-left: auto; color: #8492a6;
-  padding: 3px 10px; border-radius: 999px;
-  border: 1px solid #2a3342; background: #0d1118;
-  font-variant-numeric: tabular-nums;
-}
 pre {
   margin: 0; padding: 18px 20px 20px;
   font-family: "Cascadia Mono", "Cascadia Code", Consolas, monospace;
@@ -374,7 +363,6 @@ pre {
   <span class="dots"><i></i><i></i><i></i></span>
   <span class="title">snaptop</span>
   <span class="device">%%DEVICE%% · %%OS%%</span>
-  <span class="meta">%%THEME%% · %%INTERVAL%%s</span>
 </div>
 <pre>%%ROWS%%</pre>
 </div></body></html>
