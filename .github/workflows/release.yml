@@ -9,14 +9,13 @@ permissions:
 
 jobs:
   release:
-    runs-on: windows-latest
+    runs-on: windows-11-arm
     steps:
       - uses: actions/checkout@v5
 
       - uses: dtolnay/rust-toolchain@stable
         with:
           components: rustfmt, clippy
-          targets: aarch64-pc-windows-msvc
 
       - name: Format
         run: cargo fmt --check
@@ -27,15 +26,11 @@ jobs:
       - name: Test
         run: cargo test
 
-      # The ARM64 linker ships with the "MSVC v143 C++ ARM64 build tools"
-      # component, which the windows-latest image includes.
-      - name: Set up the ARM64 MSVC toolchain
-        uses: ilammy/msvc-dev-cmd@v1
-        with:
-          arch: arm64
-
       - name: Build
-        run: cargo build --release --target aarch64-pc-windows-msvc
+        run: cargo build --release
+
+      - name: Smoke test
+        run: .\target\release\snaptop.exe --version
 
       - name: Package
         shell: pwsh
@@ -49,7 +44,7 @@ jobs:
             throw "Tag says $version but Cargo.toml says $cargo"
           }
           $zip = "snaptop-v$version-arm64.zip"
-          Copy-Item "target/aarch64-pc-windows-msvc/release/snaptop.exe" "snaptop.exe"
+          Copy-Item "target/release/snaptop.exe" "snaptop.exe"
           Compress-Archive -Path "snaptop.exe", "LICENSE" -DestinationPath $zip
           $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash
           "VERSION=$version" >> $env:GITHUB_ENV
