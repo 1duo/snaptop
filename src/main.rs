@@ -34,6 +34,7 @@ struct Args {
     json: bool,
     preview: bool,
     capture: Option<String>,
+    capture_frames: Option<String>,
     count: Option<u64>,
     theme: Option<usize>,
 }
@@ -48,7 +49,9 @@ fn main() {
         }
     };
 
-    let result = if let Some(path) = args.capture.as_deref() {
+    let result = if let Some(dir) = args.capture_frames.as_deref() {
+        run_capture_frames(&args, dir)
+    } else if let Some(path) = args.capture.as_deref() {
         run_capture(&args, path)
     } else if args.preview {
         run_preview(&args)
@@ -71,6 +74,7 @@ fn parse_args() -> Result<Args, String> {
         json: false,
         preview: false,
         capture: None,
+        capture_frames: None,
         count: None,
         theme: None,
     };
@@ -92,6 +96,10 @@ fn parse_args() -> Result<Args, String> {
             "--capture" => {
                 let value = it.next().ok_or("--capture needs a file")?;
                 args.capture = Some(value);
+            }
+            "--capture-frames" => {
+                let value = it.next().ok_or("--capture-frames needs a directory")?;
+                args.capture_frames = Some(value);
             }
             "-i" | "--interval" => {
                 let value = it.next().ok_or("--interval needs a value")?;
@@ -122,6 +130,8 @@ fn parse_args() -> Result<Args, String> {
                     args.theme = parse_theme(value)?;
                 } else if let Some(value) = other.strip_prefix("--capture=") {
                     args.capture = Some(value.to_string());
+                } else if let Some(value) = other.strip_prefix("--capture-frames=") {
+                    args.capture_frames = Some(value.to_string());
                 } else {
                     return Err(format!("unknown option: {other}"));
                 }
@@ -165,6 +175,8 @@ OPTIONS
     -j, --json              JSON output (NDJSON stream unless --once/--count)
         --preview           render one frame as plain text, then exit
         --capture <FILE>    write a styled HTML frame (for screenshots)
+        --capture-frames <DIR>
+                            write 60 HTML frames for a GIF (10 fps)
         --theme <NAME>      auto (default), aurora, daylight, mono
     -h, --help              show this help
     -V, --version           show the version
@@ -250,6 +262,37 @@ fn run_capture(args: &Args, path: &str) -> Result<(), String> {
     let buffer = render_frame(&app)?;
     write_capture(std::path::Path::new(path), &buffer, &app)?;
     println!("wrote {path}");
+    Ok(())
+}
+
+/// Capture a short real-time sequence of styled frames for an animated README.
+fn run_capture_frames(args: &Args, dir: &str) -> Result<(), String> {
+    const FRAMES: usize = 60;
+    const WARMUP: usize = 100;
+    const FRAME_MS: u64 = 100;
+
+    let mut sampler = Sampler::new()?;
+    let device = sampler.device();
+    thread::sleep(Duration::from_millis(1050));
+
+    let mut app = App::new(device, args.interval_ms, args.theme);
+    // Fill the history first, so the first GIF frame already has a trace.
+    for _ in 0..WARMUP {
+        app.update(sampler.sample()?);
+        thread::sleep(Duration::from_millis(FRAME_MS));
+    }
+
+    let dir = std::path::Path::new(dir);
+    std::fs::create_dir_all(dir).map_err(|e| format!("cannot create {}: {e}", dir.display()))?;
+    for i in 0..FRAMES {
+        app.update(sampler.sample()?);
+        let buffer = render_frame(&app)?;
+        write_capture(&dir.join(format!("frame-{i:04}.html")), &buffer, &app)?;
+        if i + 1 < FRAMES {
+            thread::sleep(Duration::from_millis(FRAME_MS));
+        }
+    }
+    println!("wrote {FRAMES} frames to {}", dir.display());
     Ok(())
 }
 

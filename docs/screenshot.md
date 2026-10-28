@@ -1,6 +1,31 @@
-# Regenerating the README screenshot
+# Captures
 
-The capture is a real frame rendered from the live buffer, not a mock-up.
+The README hero is a real 10 fps sequence, not a mock-up; the linked still is
+a 3× frame from the same dashboard.
+
+## Animated demo
+
+The GIF is 60 frames / 6 s. Start a sustained NPU workload if you want the NPU
+active, then:
+
+```powershell
+Remove-Item -Recurse -Force docs\frames -ErrorAction SilentlyContinue
+.\target\release\snaptop.exe --capture-frames docs\frames --theme dark
+.\docs\make-gif.ps1
+Remove-Item -Recurse -Force docs\frames
+```
+
+`--capture-frames` first samples 100 frames (10 s) to fill the history, then
+writes 60 HTML frames at 10 fps. `make-gif.ps1` renders them at 2×, trims the
+transparent margin, and encodes `docs/demo.gif` with ffmpeg and gifsicle:
+1600 px wide, 256-colour palette, transparency, 10 fps, about 1 MB. Chrome,
+ffmpeg and gifsicle are required; the Windows ARM64 gifsicle build is linked
+from [lcdf.org/gifsicle](https://www.lcdf.org/gifsicle/). Put it on `PATH`, or
+pass `-Gifsicle <path>` to the script.
+
+## Still
+
+The still is 3× and is the click-through target for the GIF.
 
 ```powershell
 cargo build --release

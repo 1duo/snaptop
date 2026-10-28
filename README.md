@@ -3,9 +3,9 @@
 <p align="center"><strong>snaptop</strong> — a fast, single-binary <code>top</code> for Snapdragon laptops.<br>
 CPU, GPU, NPU and power in one clean view. No SDK, no driver.</p>
 
-<p align="center"><img src="docs/screenshot.png" alt="snaptop dashboard: CPU, GPU, NPU, memory and power" width="1000"></p>
+<p align="center"><a href="docs/screenshot.png"><img src="docs/demo.gif" alt="snaptop dashboard: CPU, GPU, NPU, memory and power" width="1000"></a></p>
 
-<p align="center"><sub>Snapdragon X Elite X1E78100.</sub></p>
+<p align="center"><sub>Snapdragon X Elite X1E78100 · click for the 3× still.</sub></p>
 
 ## Install
 

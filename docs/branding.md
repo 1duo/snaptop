@@ -11,7 +11,8 @@ geometry, not a font glyph, so the mark has no font dependency.
 |---|---|
 | `logo-mark.svg` | Vector source, 512 × 512 |
 | `logo-mark.png` | 1024 px raster, transparent outside the tile |
-| `screenshot.png` | Dashboard capture used in the README |
+| `screenshot.png` | 3× still used as the GIF's click-through |
+| `demo.gif` | Animated README hero, 1600 px, 60 frames at 10 fps |
 
 ## Palette
 
