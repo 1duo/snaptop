@@ -15,7 +15,17 @@ jobs:
 
       - uses: dtolnay/rust-toolchain@stable
         with:
+          components: rustfmt, clippy
           targets: aarch64-pc-windows-msvc
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
 
       # The ARM64 linker ships with the "MSVC v143 C++ ARM64 build tools"
       # component, which the windows-latest image includes.
@@ -26,9 +36,6 @@ jobs:
 
       - name: Build
         run: cargo build --release --target aarch64-pc-windows-msvc
-
-      - name: Test
-        run: cargo test
 
       - name: Package
         shell: pwsh
@@ -43,7 +50,7 @@ jobs:
           }
           $zip = "snaptop-v$version-arm64.zip"
           Copy-Item "target/aarch64-pc-windows-msvc/release/snaptop.exe" "snaptop.exe"
-          Compress-Archive -Path "snaptop.exe", "LICENSE", "README.md" -DestinationPath $zip
+          Compress-Archive -Path "snaptop.exe", "LICENSE" -DestinationPath $zip
           $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash
           "VERSION=$version" >> $env:GITHUB_ENV
           "ZIP=$zip" >> $env:GITHUB_ENV

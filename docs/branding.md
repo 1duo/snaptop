@@ -9,6 +9,8 @@
 | `logo-mark.png` | 1024 px mark, transparent |
 | `lockup.html` | Source for the lockup |
 
+The S is drawn from Cascadia Mono Bold (SIL Open Font License).
+
 ## Palette
 
 | Role | Hex |

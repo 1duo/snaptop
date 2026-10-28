@@ -22,6 +22,20 @@ jobs:
       - name: Build
         run: cargo build --release
 
+  arm64:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v5
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: aarch64-pc-windows-msvc
+      - name: Set up ARM64 MSVC
+        uses: ilammy/msvc-dev-cmd@v1
+        with:
+          arch: arm64
+      - name: Build
+        run: cargo build --release --target aarch64-pc-windows-msvc
+
   manifests:
     runs-on: windows-latest
     steps:

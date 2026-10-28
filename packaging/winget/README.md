@@ -1,7 +1,7 @@
 # winget packaging
 
-Released as a portable ZIP: `snaptop.exe` plus license and readme. winget keeps
-it in its package store and puts `snaptop` on `PATH`.
+Released as a portable ZIP: `snaptop.exe` plus the license. winget keeps it in
+its package store and puts `snaptop` on `PATH`.
 
 ```powershell
 winget install 1duo.snaptop

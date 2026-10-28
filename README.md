@@ -1,7 +1,8 @@
 <p align="center"><img src="docs/logo.png" width="620" alt="snaptop — CPU, GPU, NPU and power"></p>
 
 A fast, single-binary `top` for Windows on Snapdragon — mactop-style panels,
-no SDK, no driver, no admin prompt.
+no SDK, no driver, and no admin prompt on Snapdragon. Tested on X Elite; X2
+Elite's topology and power rails are detected at runtime.
 
 <p align="center"><img src="docs/screenshot.png" alt="snaptop dashboard: CPU, GPU, NPU, memory and power" width="900"></p>
 
@@ -14,7 +15,7 @@ winget install 1duo.snaptop
 ```
 
 Portable ZIP; winget puts `snaptop` on `PATH` and handles upgrades and removal.
-The 0.1.0 manifest is submitted to `microsoft/winget-pkgs` with the first
+The 0.1.0 manifest will be submitted to `microsoft/winget-pkgs` with the first
 release — until it is merged, build from source:
 
 ```powershell
@@ -32,7 +33,7 @@ snaptop --once                one plain-text snapshot
 snaptop --json --once         one JSON object
 snaptop --json -i 0.5         NDJSON metric stream
 snaptop --preview             one frame as text (bug reports)
-snaptop --theme dark          auto (default), dark, light, mono
+snaptop --theme <name>        auto (default), dark, light, mono
 ```
 
 Keys: `q` quit · `space` pause · `+`/`-` speed · `r` reset history · `t` theme · `?` help.
@@ -46,7 +47,7 @@ notes: [docs/how-it-works.md](docs/how-it-works.md).
 
 - Windows only today; the Linux backend is the next milestone.
 - Aggregate utilisation — no per-process attribution yet (`nptop` covers that).
-- NPU power is not exposed by the hardware, and GPU clocks are optional.
+- NPU power is shown when the platform exposes a rail; GPU clocks are optional.
 
 ## License
 

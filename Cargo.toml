@@ -3,6 +3,7 @@ name = "snaptop"
 version = "0.1.0"
 edition = "2024"
 rust-version = "1.88"
+authors = ["Yuduo Wu"]
 description = "A fast, elegant top for Snapdragon laptops: CPU, GPU, NPU and power in one view"
 license = "MIT"
 repository = "https://github.com/1duo/snaptop"

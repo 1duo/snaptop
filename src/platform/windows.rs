@@ -575,8 +575,8 @@ fn parse_power(instances: impl IntoIterator<Item = (String, f64)>) -> Power {
     for (instance, milliwatts) in instances {
         let watts = milliwatts as f32 / 1000.0;
         match instance.to_ascii_lowercase().as_str() {
-            "sys" | "system" => sys = Some(watts),
             "_total" => total = Some(watts),
+            name if name.starts_with("sys") => sys = Some(watts),
             name if name.starts_with("psu") => power.psu_w = Some(watts),
             name if name.starts_with("gpu") => power.gpu_w = Some(watts),
             name if name.starts_with("npu") || name.starts_with("nsp") => npu = Some(watts),
