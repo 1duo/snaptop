@@ -38,15 +38,47 @@ jobs:
           path: target/release/snaptop.exe
           if-no-files-found: error
 
+  build-linux-arm64:
+    runs-on: ubuntu-24.04-arm
+    env:
+      CARGO_TARGET_AARCH64_UNKNOWN_LINUX_MUSL_LINKER: rust-lld
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+          targets: aarch64-unknown-linux-musl
+
+      - name: Format
+        run: cargo fmt --check
+
+      - name: Lint
+        run: cargo clippy --all-targets -- -D warnings
+
+      - name: Test
+        run: cargo test
+
+      - name: Build
+        run: cargo build --release --target aarch64-unknown-linux-musl
+
+      - name: Smoke test
+        run: ./target/aarch64-unknown-linux-musl/release/snaptop --version
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: snaptop-linux-arm64
+          path: target/aarch64-unknown-linux-musl/release/snaptop
+          if-no-files-found: error
+
   publish:
-    needs: build-arm64
+    needs: [build-arm64, build-linux-arm64]
     runs-on: windows-latest
     steps:
       - uses: actions/checkout@v5
 
       - uses: actions/download-artifact@v4
         with:
-          name: snaptop-arm64
           path: dist
 
       - name: Package
@@ -61,11 +93,19 @@ jobs:
             throw "Tag says $version but Cargo.toml says $cargo"
           }
           $zip = "snaptop-v$version-arm64.zip"
-          Copy-Item "dist/snaptop.exe" "snaptop.exe"
+          Copy-Item "dist/snaptop-arm64/snaptop.exe" "snaptop.exe"
           Compress-Archive -Path "snaptop.exe", "LICENSE" -DestinationPath $zip
           $hash = (Get-FileHash -Path $zip -Algorithm SHA256).Hash
+
+          $tar = "snaptop-linux-arm64.tar.gz"
+          New-Item -ItemType Directory -Path staging -Force | Out-Null
+          Copy-Item "dist/snaptop-linux-arm64/snaptop" "staging/snaptop"
+          Copy-Item "LICENSE" "staging/LICENSE"
+          tar -czf $tar -C staging snaptop LICENSE
+
           "VERSION=$version" >> $env:GITHUB_ENV
           "ZIP=$zip" >> $env:GITHUB_ENV
+          "TAR=$tar" >> $env:GITHUB_ENV
           "SHA256=$hash" >> $env:GITHUB_ENV
 
       - name: Generate winget manifests
@@ -80,5 +120,6 @@ jobs:
         with:
           files: |
             ${{ env.ZIP }}
+            ${{ env.TAR }}
             packaging/winget/out/*.yaml
           generate_release_notes: true
