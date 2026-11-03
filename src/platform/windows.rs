@@ -14,7 +14,7 @@ use winreg::RegKey;
 use winreg::enums::HKEY_LOCAL_MACHINE;
 
 use crate::fmt;
-use crate::model::{Core, CoreKind, Cpu, DeviceInfo, Engine, Gpu, Mem, Npu, Power, Snapshot};
+use crate::model::{self, Core, CoreKind, Cpu, DeviceInfo, Engine, Gpu, Mem, Npu, Power, Snapshot};
 
 pub type Result<T> = std::result::Result<T, String>;
 
@@ -549,19 +549,6 @@ fn core_kinds() -> Vec<CoreKind> {
     }
 }
 
-/// X2 Elite has Prime + Performance cores and no efficiency tier. Windows
-/// still ranks the two by EfficiencyClass, so fold the lower tier back into
-/// Performance instead of mislabelling it "E".
-fn normalize_kinds(cpu_name: &str, kinds: &mut [CoreKind]) {
-    if cpu_name.to_ascii_uppercase().contains("X2") {
-        for kind in kinds {
-            if *kind == CoreKind::Efficiency {
-                *kind = CoreKind::Performance;
-            }
-        }
-    }
-}
-
 /// Map `\Energy Meter` instances onto rails. Names and counts differ across
 /// X Elite / X2 Elite models, so match by prefix and sum every CPU cluster.
 fn parse_power(instances: impl IntoIterator<Item = (String, f64)>) -> Power {
@@ -781,7 +768,7 @@ impl Sampler {
                 .map(|i| k.get(i).copied().unwrap_or(CoreKind::Unknown))
                 .collect::<Vec<_>>()
         };
-        normalize_kinds(&cpu, &mut kinds);
+        model::normalize_kinds(&cpu, &mut kinds);
 
         let (adapters, software) = dxgi_adapters();
         let npu = npu_name();
@@ -984,7 +971,7 @@ impl Sampler {
             let engines = engines_of(luid);
             snapshot.npus.push(Npu {
                 name: self.npu.clone(),
-                util: engines.iter().map(|e| e.util).fold(0.0, f32::max),
+                util: Some(engines.iter().map(|e| e.util).fold(0.0, f32::max)),
                 engines,
                 watts: None,
             });
@@ -1103,17 +1090,6 @@ mod tests {
         let key = "luid_0x00000000_0x0001221c";
         let luid = adapter_key_luid(key).unwrap();
         assert_eq!(luid_key(luid), key);
-    }
-
-    #[test]
-    fn x2_has_no_efficiency_tier() {
-        let mut x2 = vec![CoreKind::Performance, CoreKind::Efficiency];
-        normalize_kinds("Snapdragon X2 Elite X2E-88-100", &mut x2);
-        assert_eq!(x2, vec![CoreKind::Performance, CoreKind::Performance]);
-
-        let mut x1 = vec![CoreKind::Performance, CoreKind::Efficiency];
-        normalize_kinds("Snapdragon X Elite X1E78100", &mut x1);
-        assert_eq!(x1, vec![CoreKind::Performance, CoreKind::Efficiency]);
     }
 
     #[test]

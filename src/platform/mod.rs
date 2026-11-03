@@ -6,7 +6,9 @@ mod windows;
 #[cfg(windows)]
 pub use windows::Sampler;
 
-#[cfg(not(windows))]
+// The Linux backend is plain `/proc` and `/sys` reads, so it builds — and its
+// fixture tests run — on every host; only the export is platform-specific.
+#[cfg_attr(windows, allow(dead_code))]
 mod linux;
 #[cfg(not(windows))]
 pub use linux::Sampler;

@@ -48,7 +48,8 @@ impl App {
     pub fn update(&mut self, snapshot: Snapshot) {
         self.cpu.push(snapshot.cpu.util);
         self.gpu.push(snapshot.gpu().map(|g| g.util).unwrap_or(0.0));
-        self.npu.push(snapshot.npu().map(|n| n.util).unwrap_or(0.0));
+        self.npu
+            .push(snapshot.npu().and_then(|n| n.util).unwrap_or(0.0));
         self.mem.push(snapshot.mem.pct());
         if let Some(watts) = snapshot.power.sys_w.or(self.last_power) {
             self.power.push(watts);

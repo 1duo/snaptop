@@ -92,6 +92,7 @@ pub fn pretty_cpu_name(raw: &str) -> String {
 }
 
 /// "Snapdragon(R) X Elite - X1E78100 - Qualcomm(R) Hexagon(TM) NPU" -> "Hexagon NPU"
+#[cfg(windows)]
 pub fn pretty_npu_name(raw: &str) -> String {
     let cleaned = raw
         .replace("(R)", "")
@@ -125,6 +126,7 @@ pub fn pretty_gpu_name(raw: &str) -> String {
     if let Some(at) = lower.find("adreno") {
         let rest = name[at + "adreno".len()..].trim();
         let rest = rest.trim_end_matches(" GPU").trim();
+        let rest = without_revision(rest);
         return if rest.is_empty() {
             "Adreno GPU".to_string()
         } else {
@@ -140,6 +142,20 @@ pub fn pretty_gpu_name(raw: &str) -> String {
     }
 }
 
+/// kgsl reports `gpu_model` as the part plus a GPU revision: "Adreno663v1".
+/// Drop the revision so the panel reads like the marketing name.
+fn without_revision(name: &str) -> &str {
+    let Some(at) = name.find('v') else {
+        return name;
+    };
+    let (head, tail) = name.split_at(at);
+    let revision = &tail[1..];
+    if head.is_empty() || revision.is_empty() || !revision.chars().all(|c| c.is_ascii_digit()) {
+        return name;
+    }
+    head.trim_end()
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -151,6 +167,7 @@ mod tests {
     }
 
     #[test]
+    #[cfg(windows)]
     fn npu_names_are_tidy() {
         let raw = "Snapdragon(R) X Elite - X1E78100 - Qualcomm(R) Hexagon(TM) NPU";
         assert_eq!(pretty_npu_name(raw), "Hexagon NPU");
@@ -170,6 +187,10 @@ mod tests {
             pretty_gpu_name("Intel(R) Arc(TM) Graphics GPU"),
             "Intel Arc Graphics"
         );
+        // kgsl on Linux: part plus revision, no separator.
+        assert_eq!(pretty_gpu_name("Adreno663v1"), "Adreno 663");
+        assert_eq!(pretty_gpu_name("Adreno690v2"), "Adreno 690");
+        assert_eq!(pretty_gpu_name("Adreno X2-90"), "Adreno X2-90");
     }
 
     #[test]
