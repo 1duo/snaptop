@@ -18,6 +18,21 @@ impl CoreKind {
     }
 }
 
+/// Fold a lower performance tier back into P when the part has no efficiency
+/// cores. X2 Elite ships 12 Prime + 6 Performance cores; Windows and the Linux
+/// DSU still rank the two tiers separately, which would mislabel half the chip
+/// "E". Every backend funnels its topology through here so the rule lives once.
+pub fn normalize_kinds(cpu_name: &str, kinds: &mut [CoreKind]) {
+    if !cpu_name.to_ascii_uppercase().contains("X2") {
+        return;
+    }
+    for kind in kinds {
+        if *kind == CoreKind::Efficiency {
+            *kind = CoreKind::Performance;
+        }
+    }
+}
+
 #[derive(Clone, Debug)]
 pub struct Core {
     pub id: usize,
@@ -73,7 +88,9 @@ pub struct Gpu {
 #[derive(Clone, Debug, Default)]
 pub struct Npu {
     pub name: String,
-    pub util: f32,
+    /// Linux has no system-wide NPU busy counter, so utilisation is optional:
+    /// `None` means "not exposed by this platform", not "idle".
+    pub util: Option<f32>,
     pub engines: Vec<Engine>,
     pub watts: Option<f32>,
 }
@@ -167,6 +184,36 @@ impl DeviceInfo {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn x1_keeps_its_efficiency_tier() {
+        let mut kinds = [
+            CoreKind::Performance,
+            CoreKind::Performance,
+            CoreKind::Efficiency,
+            CoreKind::Efficiency,
+        ];
+        normalize_kinds("Snapdragon X Elite X1E78100", &mut kinds);
+        assert_eq!(kinds[3], CoreKind::Efficiency);
+    }
+
+    #[test]
+    fn x2_has_no_efficiency_tier() {
+        let mut kinds = [
+            CoreKind::Performance,
+            CoreKind::Efficiency,
+            CoreKind::Unknown,
+        ];
+        normalize_kinds("Snapdragon X2 Elite X2E-88-100", &mut kinds);
+        assert_eq!(
+            kinds,
+            [
+                CoreKind::Performance,
+                CoreKind::Performance,
+                CoreKind::Unknown
+            ]
+        );
+    }
 
     #[test]
     fn single_class_summary_has_no_split() {

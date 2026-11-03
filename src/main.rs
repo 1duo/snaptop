@@ -189,16 +189,7 @@ KEYS (interactive)
     t                       cycle theme
     ?                       help
 
-WHAT IT READS
-    CPU utilisation   \\Processor Information(*)\\% Processor Utility
-    CPU topology      GetLogicalProcessorInformationEx (EfficiencyClass)
-    GPU / NPU         \\GPU Engine(*)\\Utilization Percentage, grouped by LUID
-    GPU clock         D3DKMTQueryAdapterInfo(KMTQAITYPE_NODEPERFDATA)
-    Power             \\Energy Meter(*)\\Power (Snapdragon EMI rails)
-    Thermal           \\Thermal Zone Information(*)\\Temperature
-
-    The NPU is the MCDM compute accelerator: a LUID that appears in the GPU
-    engine counters but belongs to no DXGI adapter. No driver is required.
+{SOURCES}
 
 EXAMPLES
     snaptop                       the dashboard
@@ -208,6 +199,35 @@ EXAMPLES
 "
     );
 }
+
+#[cfg(windows)]
+const SOURCES: &str = "\
+WHAT IT READS
+    CPU utilisation   \\Processor Information(*)\\% Processor Utility
+    CPU topology      GetLogicalProcessorInformationEx (EfficiencyClass)
+    GPU / NPU         \\GPU Engine(*)\\Utilization Percentage, grouped by LUID
+    GPU clock         D3DKMTQueryAdapterInfo(KMTQAITYPE_NODEPERFDATA)
+    Power             \\Energy Meter(*)\\Power (Snapdragon EMI rails)
+    Thermal           \\Thermal Zone Information(*)\\Temperature
+
+    The NPU is the MCDM compute accelerator: a LUID that appears in the GPU
+    engine counters but belongs to no DXGI adapter. No driver is required.";
+
+#[cfg(not(windows))]
+const SOURCES: &str = "\
+WHAT IT READS
+    CPU utilisation   /proc/stat
+    CPU clocks        /sys/devices/system/cpu/cpu*/cpufreq
+    CPU topology      cpu_capacity, or cpu_core / cpu_atom on x86 hybrid
+    GPU               /sys/class/kgsl/kgsl-3d0, or a DRM card's busy counter
+    NPU               the CDSP fastrpc node, or an accel device
+    Power / battery   /sys/class/power_supply
+    Memory            /proc/meminfo
+    Thermal           /sys/class/thermal
+
+    Every value is a file read: no driver, no service, no SDK. Linux exposes
+    no system-wide NPU busy counter, so that row shows its name and — for
+    utilisation instead of a fabricated 0%.";
 
 const CAPTURE_WIDTH: u16 = 100;
 const CAPTURE_HEIGHT: u16 = 28;
@@ -512,10 +532,11 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
                 .watts
                 .map(|w| format!(" · {}", fmt::watts(Some(w))))
                 .unwrap_or_default();
+            let util = npu.util.map(fmt::pct).unwrap_or_else(|| "—".to_string());
             println!(
                 "NPU  {} {:>4}   {}{}",
-                bar(npu.util),
-                fmt::pct(npu.util),
+                bar(npu.util.unwrap_or(0.0)),
+                util,
                 npu.name,
                 power
             );
@@ -600,7 +621,7 @@ fn snapshot_json(device: &DeviceInfo, s: &Snapshot, seq: u64) -> serde_json::Val
         .map(|n| {
             json!({
                 "name": n.name,
-                "util_pct": round1(n.util),
+                "util_pct": n.util.map(round1),
                 "power_w": n.watts.map(round2),
                 "engines": n.engines.iter()
                     .map(|e| json!({"name": e.name, "util_pct": round1(e.util)}))

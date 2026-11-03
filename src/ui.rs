@@ -375,11 +375,8 @@ fn draw_npu(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
         panel(buf, rect, p, p.npu, "NPU", "not found ");
         return;
     };
-    let detail = format!(
-        "{} · {} ",
-        npu.name.trim_end_matches(" NPU"),
-        fmt::pct(npu.util)
-    );
+    let util = npu.util.map(fmt::pct).unwrap_or_else(|| "—".to_string());
+    let detail = format!("{} · {} ", npu.name.trim_end_matches(" NPU"), util);
     let Some(inner) = panel(buf, rect, p, p.npu, "NPU", &detail) else {
         return;
     };
@@ -398,7 +395,21 @@ fn draw_accelerator<T: Gauge>(
         return;
     }
 
-    draw_big_pct(buf, inner.x, inner.y, device.util(), p, accent);
+    let util = device.util();
+    match util {
+        Some(value) => draw_big_pct(buf, inner.x, inner.y, value, p, accent),
+        None => {
+            buf.set_string(
+                inner.x,
+                inner.y,
+                "—",
+                Style::default()
+                    .fg(p.faint)
+                    .bg(p.bg)
+                    .add_modifier(Modifier::BOLD),
+            );
+        }
+    }
     put_right(
         buf,
         inner,
@@ -407,16 +418,10 @@ fn draw_accelerator<T: Gauge>(
         Style::default().fg(p.dim).bg(p.bg),
     );
 
-    if inner.height > 1 {
-        draw_meter(
-            buf,
-            inner.x,
-            inner.y + 1,
-            inner.width,
-            device.util(),
-            accent,
-            p,
-        );
+    if let Some(value) = util
+        && inner.height > 1
+    {
+        draw_meter(buf, inner.x, inner.y + 1, inner.width, value, accent, p);
     }
     if inner.height > 2 {
         buf.set_string(
@@ -428,7 +433,7 @@ fn draw_accelerator<T: Gauge>(
     }
 
     let spark_h = inner.height.saturating_sub(3).min(4);
-    if spark_h > 0 {
+    if spark_h > 0 && util.is_some() {
         draw_sparkline(
             buf,
             Rect {
@@ -446,14 +451,16 @@ fn draw_accelerator<T: Gauge>(
 }
 
 trait Gauge {
-    fn util(&self) -> f32;
+    /// `None` when the platform has no counter; the panel then shows "—"
+    /// instead of claiming the accelerator is idle.
+    fn util(&self) -> Option<f32>;
     fn summary(&self) -> String;
     fn details(&self) -> String;
 }
 
 impl Gauge for Gpu {
-    fn util(&self) -> f32 {
-        self.util
+    fn util(&self) -> Option<f32> {
+        Some(self.util)
     }
     fn summary(&self) -> String {
         fmt::mhz_pair(self.cur_mhz, self.max_mhz)
@@ -484,21 +491,22 @@ impl Gauge for Gpu {
 }
 
 impl Gauge for Npu {
-    fn util(&self) -> f32 {
+    fn util(&self) -> Option<f32> {
         self.util
     }
     fn summary(&self) -> String {
-        match self.watts {
-            Some(watts) => fmt::watts(Some(watts)),
-            None if self.util < 0.5 => "idle".to_string(),
-            None => "—".to_string(),
+        match (self.watts, self.util) {
+            (Some(watts), _) => fmt::watts(Some(watts)),
+            (None, None) => "—".to_string(),
+            (None, Some(util)) if util < 0.5 => "idle".to_string(),
+            (None, Some(_)) => "—".to_string(),
         }
     }
     fn details(&self) -> String {
         self.engines
             .first()
             .map(|e| format!("engine {} {}", e.name, fmt::pct(e.util)))
-            .unwrap_or_else(|| "no engine counter".to_string())
+            .unwrap_or_else(|| "no utilisation counter".to_string())
     }
 }
 
@@ -875,7 +883,7 @@ mod tests {
             }],
             npus: vec![Npu {
                 name: "Hexagon NPU".into(),
-                util: 0.0,
+                util: Some(0.0),
                 engines: vec![Engine {
                     name: "Compute".into(),
                     util: 0.0,
@@ -981,6 +989,18 @@ mod tests {
             terminal.draw(|frame| draw(frame, &app)).unwrap();
             assert_eq!(terminal.backend().buffer()[(1, 1)].bg, palette.bg);
         }
+    }
+
+    #[test]
+    fn an_unknown_npu_counter_reads_as_a_dash() {
+        let (device, mut snapshot) = demo();
+        snapshot.npus[0].util = None;
+        snapshot.npus[0].engines.clear();
+
+        let frame = render_with(device, snapshot, 100, 30, 0);
+        println!("{frame}");
+        assert!(frame.contains("no utilisation counter"));
+        assert!(frame.contains("NPU"));
     }
 
     #[test]
