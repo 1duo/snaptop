@@ -272,8 +272,15 @@ fn run_preview(args: &Args) -> Result<(), String> {
         }
         out.push('\n');
     }
-    print!("{out}");
+    // A preview is a debugging aid; a closed reader needs no error path.
+    let mut stdout = std::io::stdout();
+    let _ = stdout.write_all(out.as_bytes());
     Ok(())
+}
+
+/// Status lines are best-effort: a closed reader is not a failure here.
+fn note(text: &str) {
+    let _ = writeln!(std::io::stdout(), "{text}");
 }
 
 /// Write the same frame as styled HTML for a browser screenshot.
@@ -281,7 +288,7 @@ fn run_capture(args: &Args, path: &str) -> Result<(), String> {
     let app = preview_app(args)?;
     let buffer = render_frame(&app)?;
     write_capture(std::path::Path::new(path), &buffer, &app)?;
-    println!("wrote {path}");
+    note(&format!("wrote {path}"));
     Ok(())
 }
 
@@ -312,7 +319,7 @@ fn run_capture_frames(args: &Args, dir: &str) -> Result<(), String> {
             thread::sleep(Duration::from_millis(FRAME_MS));
         }
     }
-    println!("wrote {FRAMES} frames to {}", dir.display());
+    note(&format!("wrote {FRAMES} frames to {}", dir.display()));
     Ok(())
 }
 
@@ -439,15 +446,23 @@ fn run_headless(args: &Args) -> Result<(), String> {
     thread::sleep(Duration::from_millis(1050));
 
     let limit = args.count.unwrap_or(if args.once { 1 } else { u64::MAX });
+    let stdout = std::io::stdout();
+    let mut out = stdout.lock();
     let mut seq = 0u64;
     loop {
         let snapshot = sampler.sample()?;
-        if args.json {
-            let line = snapshot_json(&device, &snapshot, seq);
-            println!("{line}");
-            let _ = std::io::stdout().flush();
+        let written = if args.json {
+            writeln!(out, "{}", snapshot_json(&device, &snapshot, seq))
         } else {
-            print_plain(&device, &snapshot, seq == 0);
+            print_plain(&mut out, &device, &snapshot, seq == 0)
+        };
+        if let Err(error) = written.and_then(|_| out.flush()) {
+            // `snaptop --json | head` closes the pipe after a line or two.
+            // A reader that went away is a clean stop, not a failure.
+            if error.kind() == std::io::ErrorKind::BrokenPipe {
+                return Ok(());
+            }
+            return Err(format!("cannot write to stdout: {error}"));
         }
         seq += 1;
         if seq >= limit {
@@ -458,24 +473,31 @@ fn run_headless(args: &Args) -> Result<(), String> {
     Ok(())
 }
 
-fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
+fn print_plain(
+    out: &mut impl Write,
+    device: &DeviceInfo,
+    s: &Snapshot,
+    header: bool,
+) -> std::io::Result<()> {
     if header {
-        println!(
+        writeln!(
+            out,
             "snaptop {VERSION} · {} · {} · {}",
             device.cpu_name,
             device.os_name,
             device.core_summary()
-        );
-        println!();
+        )?;
+        writeln!(out)?;
     }
 
-    println!(
+    writeln!(
+        out,
         "CPU  {} {:>4}   {} · {}",
         bar(s.cpu.util),
         fmt::pct(s.cpu.util),
         fmt::mhz(Some(s.cpu.cur_mhz)),
         fmt::watts(s.cpu.watts)
-    );
+    )?;
     let mut split = Vec::new();
     if let Some(v) = s.cpu.util_of(CoreKind::Performance) {
         split.push(format!(
@@ -492,7 +514,7 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
         ));
     }
     if !split.is_empty() {
-        println!("     {}", split.join("   "));
+        writeln!(out, "     {}", split.join("   "))?;
     }
 
     match s.gpu() {
@@ -505,14 +527,15 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
                 ),
                 _ => String::new(),
             };
-            println!(
+            writeln!(
+                out,
                 "GPU  {} {:>4}   {}{} · {}",
                 bar(gpu.util),
                 fmt::pct(gpu.util),
                 fmt::mhz_pair(gpu.cur_mhz, gpu.max_mhz),
                 memory,
                 fmt::watts(gpu.watts)
-            );
+            )?;
             let engines = gpu
                 .engines
                 .iter()
@@ -520,10 +543,10 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
                 .map(|e| format!("{} {}", e.name, fmt::pct(e.util)))
                 .collect::<Vec<_>>();
             if !engines.is_empty() {
-                println!("     {} · {}", gpu.name, engines.join(" · "));
+                writeln!(out, "     {} · {}", gpu.name, engines.join(" · "))?;
             }
         }
-        None => println!("GPU  no adapter found"),
+        None => writeln!(out, "GPU  no adapter found")?,
     }
 
     match s.npu() {
@@ -533,29 +556,32 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
                 .map(|w| format!(" · {}", fmt::watts(Some(w))))
                 .unwrap_or_default();
             let util = npu.util.map(fmt::pct).unwrap_or_else(|| "—".to_string());
-            println!(
+            writeln!(
+                out,
                 "NPU  {} {:>4}   {}{}",
                 bar(npu.util.unwrap_or(0.0)),
                 util,
                 npu.name,
                 power
-            );
+            )?;
         }
-        None => println!("NPU  not found"),
+        None => writeln!(out, "NPU  not found")?,
     }
 
-    println!(
+    writeln!(
+        out,
         "MEM  {} {:>4}   {}",
         bar(s.mem.pct()),
         fmt::pct(s.mem.pct()),
         fmt::gib_pair(s.mem.used, s.mem.total)
-    );
+    )?;
     if s.mem.commit_total > 0 {
-        println!(
+        writeln!(
+            out,
             "     avail {} · commit {}",
             fmt::gib(s.mem.available),
             fmt::gib_pair(s.mem.commit_used, s.mem.commit_total)
-        );
+        )?;
     }
 
     let mut tail = Vec::new();
@@ -582,9 +608,10 @@ fn print_plain(device: &DeviceInfo, s: &Snapshot, header: bool) {
         tail.push(format!("BAT {b}%{ac}"));
     }
     if !tail.is_empty() {
-        println!("     {}", tail.join(" · "));
+        writeln!(out, "     {}", tail.join(" · "))?;
     }
-    println!();
+    writeln!(out)?;
+    Ok(())
 }
 
 fn bar(value: f32) -> String {
@@ -829,4 +856,78 @@ fn spawn_sampler(interval_ms: u64) -> Result<SamplerThread, String> {
         .recv()
         .map_err(|_| "sampler thread stopped unexpectedly".to_string())??;
     Ok((device, snapshot_rx, interval, stop, handle))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::model::{Core, Mem};
+    use std::io::Write;
+
+    fn device() -> DeviceInfo {
+        DeviceInfo {
+            cpu_name: "Snapdragon X Elite".to_string(),
+            os_name: "Test OS".to_string(),
+            cpu_count: 1,
+            p_cores: 1,
+            ..Default::default()
+        }
+    }
+
+    fn snapshot() -> Snapshot {
+        Snapshot {
+            cpu: model::Cpu {
+                util: 42.0,
+                cores: vec![Core {
+                    id: 0,
+                    kind: CoreKind::Performance,
+                    util: 42.0,
+                    cur_mhz: 3000,
+                    max_mhz: 3400,
+                }],
+                cur_mhz: 3000,
+                max_mhz: 3400,
+                watts: None,
+            },
+            mem: Mem {
+                used: 1 << 30,
+                total: 4 << 30,
+                available: 3 << 30,
+                ..Default::default()
+            },
+            ..Default::default()
+        }
+    }
+
+    #[test]
+    fn plain_output_keeps_its_panels() {
+        let mut out = Vec::new();
+        print_plain(&mut out, &device(), &snapshot(), true).expect("write");
+        let text = String::from_utf8(out).expect("utf-8");
+
+        assert!(text.contains("Snapdragon X Elite"), "{text}");
+        assert!(text.contains("Test OS"), "{text}");
+        assert!(text.contains("CPU  ["));
+        assert!(text.contains("GPU  no adapter found"), "{text}");
+        assert!(text.contains("NPU  not found"), "{text}");
+        assert!(text.contains("MEM  ["));
+    }
+
+    #[test]
+    fn a_closed_reader_is_reported_as_a_broken_pipe() {
+        struct Closed;
+
+        impl Write for Closed {
+            fn write(&mut self, _: &[u8]) -> std::io::Result<usize> {
+                Err(std::io::Error::from(std::io::ErrorKind::BrokenPipe))
+            }
+
+            fn flush(&mut self) -> std::io::Result<()> {
+                Ok(())
+            }
+        }
+
+        let error = print_plain(&mut Closed, &device(), &snapshot(), false).expect_err("closed");
+        assert_eq!(error.kind(), std::io::ErrorKind::BrokenPipe);
+    }
 }
