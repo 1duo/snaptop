@@ -627,12 +627,16 @@ fn board_name(root: &Path) -> String {
     cpuinfo_name(root).unwrap_or_else(|| "Linux".to_string())
 }
 
+/// Trim the vendor and build-flavour prefixes that vendor images put in front
+/// of the product name, so the header reads the board name: "Qualcomm
+/// Technologies, Inc. Addons IQ 9075 EVK" -> "IQ 9075 EVK".
 fn tidy_board(raw: &str) -> String {
     let name = fmt::pretty_cpu_name(raw);
     let name = name
         .strip_prefix("Qualcomm Technologies, Inc.")
         .unwrap_or(&name)
         .trim();
+    let name = name.strip_prefix("Addons ").unwrap_or(name).trim();
     name.to_string()
 }
 
@@ -1065,7 +1069,7 @@ cpu3 150 0 150 900 0 0 0 0 0 0
         let fixture = Fixture::new("board-name");
         fixture.write(
             "proc/device-tree/model",
-            "Qualcomm Technologies, Inc. IQ-9075 EVK\0",
+            "Qualcomm Technologies, Inc. Addons IQ 9075 EVK\0",
         );
         fixture.write("proc/device-tree/compatible", "qcom,qcs9075-iq-9075-evk\0");
         fixture.write("sys/class/dmi/id/product_name", "21N2S01F00\n");
@@ -1074,7 +1078,7 @@ cpu3 150 0 150 900 0 0 0 0 0 0
 
         let sampler = Sampler::with_root(fixture.root()).expect("sampler");
         let device = sampler.device();
-        assert_eq!(device.cpu_name, "IQ-9075 EVK");
+        assert_eq!(device.cpu_name, "IQ 9075 EVK");
         assert_eq!(device.os_name, "Ubuntu 24.04.3 LTS");
         assert_eq!(device.os_build, "6.8.0-1084-qcom");
     }

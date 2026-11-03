@@ -616,12 +616,11 @@ fn draw_power(buf: &mut Buffer, rect: Rect, app: &App, p: &Palette) {
         ]
         .into_iter()
         .filter_map(|(label, value)| value.map(|w| format!("{label} {}", fmt::watts(Some(w)))))
-        .collect::<Vec<_>>()
-        .join(" · ");
+        .collect::<Vec<_>>();
         buf.set_string(
             inner.x,
             inner.y + 1,
-            fmt::truncate(&rails, inner.width as usize),
+            fit_entries(&rails, inner.width as usize),
             Style::default().fg(p.fg).bg(p.bg),
         );
     }
@@ -815,6 +814,34 @@ fn put_right(buf: &mut Buffer, area: Rect, y: u16, text: &str, style: Style) {
     buf.set_string(area.x + area.width - len, y, text, style);
 }
 
+/// Fit whole entries into `width`. Never cut a value in half: drop the tail
+/// and mark it, so "PSU …" cannot be mistaken for a partial reading.
+fn fit_entries(entries: &[String], width: usize) -> String {
+    let joined = entries.join(" · ");
+    if joined.chars().count() <= width {
+        return joined;
+    }
+
+    let mut line = String::new();
+    for entry in entries {
+        let separator = if line.is_empty() { 0 } else { 3 };
+        let needed = line.chars().count() + separator + entry.chars().count();
+        if needed + 2 > width {
+            break;
+        }
+        if !line.is_empty() {
+            line.push_str(" · ");
+        }
+        line.push_str(entry);
+    }
+
+    if line.is_empty() {
+        return fmt::truncate(&joined, width);
+    }
+    line.push_str(" …");
+    line
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -1001,6 +1028,27 @@ mod tests {
         println!("{frame}");
         assert!(frame.contains("no utilisation counter"));
         assert!(frame.contains("NPU"));
+    }
+
+    #[test]
+    fn power_rails_are_dropped_whole_when_space_is_tight() {
+        let rails = ["CPU 3.9 W", "GPU 0.0 W", "NPU 0.0 W", "PSU 0.0 W"].map(str::to_string);
+
+        let line = fit_entries(&rails, 39);
+        assert!(line.chars().count() <= 39, "{line}");
+        assert!(line.ends_with('…'), "{line}");
+        assert!(!line.contains("PSU"), "{line}");
+        assert!(line.contains("NPU 0.0 W"), "{line}");
+
+        assert_eq!(fit_entries(&rails, 80), rails.join(" · "));
+    }
+
+    #[test]
+    fn a_narrow_panel_never_shows_half_a_value() {
+        let rails = ["CPU 3.9 W".to_string(), "GPU 0.0 W".to_string()];
+        let line = fit_entries(&rails, 12);
+        assert!(line.chars().count() <= 12, "{line}");
+        assert!(line.contains("CPU 3.9 W"), "{line}");
     }
 
     #[test]
