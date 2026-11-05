@@ -66,6 +66,14 @@ jobs:
         architecture: [arm64, x64]
     steps:
       - uses: actions/checkout@v5
+      - name: Set up WinGet
+        shell: pwsh
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: |
+          Install-Module -Name Microsoft.WinGet.Client -Repository PSGallery -Scope CurrentUser -Force
+          Repair-WinGetPackageManager -Latest -Force
+          winget --version
       - name: Generate
         shell: pwsh
         run: ./packaging/winget/New-WingetManifests.ps1 -Version 0.1.0 -Architecture '${{ matrix.architecture }}' -Sha256 ('0' * 64) -OutDir "$env:RUNNER_TEMP\winget"
