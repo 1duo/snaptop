@@ -50,16 +50,16 @@ if (-not $InstallerUrl) {
 }
 
 $versionManifest = @'
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.10.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.version.1.12.0.schema.json
 PackageIdentifier: 1duo.snaptop
 PackageVersion: {{VERSION}}
 DefaultLocale: en-US
 ManifestType: version
-ManifestVersion: 1.10.0
+ManifestVersion: 1.12.0
 '@
 
 $installerManifest = @'
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.10.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.installer.1.12.0.schema.json
 PackageIdentifier: 1duo.snaptop
 PackageVersion: {{VERSION}}
 InstallerType: zip
@@ -71,12 +71,15 @@ Installers:
   - Architecture: {{ARCH}}
     InstallerUrl: {{URL}}
     InstallerSha256: {{SHA256}}
+Dependencies:
+  PackageDependencies:
+    - PackageIdentifier: Microsoft.VCRedist.2015+.{{ARCH}}
 ManifestType: installer
-ManifestVersion: 1.10.0
+ManifestVersion: 1.12.0
 '@
 
 $localeManifest = @'
-# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.10.0.schema.json
+# yaml-language-server: $schema=https://aka.ms/winget-manifest.defaultLocale.1.12.0.schema.json
 PackageIdentifier: 1duo.snaptop
 PackageVersion: {{VERSION}}
 PackageLocale: en-US
@@ -106,7 +109,7 @@ Tags:
   - system
 ReleaseNotesUrl: https://github.com/1duo/snaptop/releases/tag/v{{VERSION}}
 ManifestType: defaultLocale
-ManifestVersion: 1.10.0
+ManifestVersion: 1.12.0
 '@
 
 $installer = $installerManifest.Replace('{{VERSION}}', $Version)

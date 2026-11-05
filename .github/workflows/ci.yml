@@ -61,10 +61,13 @@ jobs:
 
   manifests:
     runs-on: windows-latest
+    strategy:
+      matrix:
+        architecture: [arm64, x64]
     steps:
       - uses: actions/checkout@v5
       - name: Generate
         shell: pwsh
-        run: ./packaging/winget/New-WingetManifests.ps1 -Version 0.1.0 -Sha256 ('0' * 64) -OutDir "$env:RUNNER_TEMP\winget"
+        run: ./packaging/winget/New-WingetManifests.ps1 -Version 0.1.0 -Architecture '${{ matrix.architecture }}' -Sha256 ('0' * 64) -OutDir "$env:RUNNER_TEMP\winget"
       - name: Validate
         run: winget validate --manifest "$env:RUNNER_TEMP\winget"
